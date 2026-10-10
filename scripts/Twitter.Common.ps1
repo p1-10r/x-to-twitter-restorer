@@ -386,17 +386,57 @@ function Remove-OwnedPolicyForFreshInstall {
     Write-Host 'Temporarily removed owned Twitter PWA policy.' -ForegroundColor Yellow
     return $true
 }
+function Get-TargetBrowserProcesses {
+    # Check only the selected browser's processes. MainWindowHandle is normally
+    # zero for Chromium background renderers, GPU, and extension processes.
+    return @(Get-Process -Name $script:SelectedBrowser.Process -ErrorAction SilentlyContinue)
+}
 function Close-BrowserGracefully {
-    $processes = @(Get-Process -Name $script:SelectedBrowser.Process -ErrorAction SilentlyContinue)
+    $processes = @(Get-TargetBrowserProcesses)
     if ($processes.Count -eq 0) { return }
-    foreach ($p in $processes) {
-        try { if ($p.MainWindowHandle -ne [IntPtr]::Zero) { [void]$p.CloseMainWindow() } } catch { }
+    Write-Host ('Closing ' + $script:SelectedBrowser.DisplayName + ' browser windows...') -ForegroundColor Yellow
+    foreach ($proc in $processes) {
+        try { if ($proc.MainWindowHandle -ne [IntPtr]::Zero) { [void]$proc.CloseMainWindow() } } catch { }
     }
-    $limit = (Get-Date).AddSeconds(20)
-    while ((Get-Process -Name $script:SelectedBrowser.Process -ErrorAction SilentlyContinue) -and (Get-Date) -lt $limit) { Start-Sleep -Seconds 1 }
-    if (Get-Process -Name $script:SelectedBrowser.Process -ErrorAction SilentlyContinue) {
-        throw ($script:SelectedBrowser.DisplayName + ' is still running. Exit it completely, including background tasks, then retry.')
+    $deadline = (Get-Date).AddSeconds(25)
+    while (@(Get-TargetBrowserProcesses).Count -gt 0 -and (Get-Date) -lt $deadline) {
+        Start-Sleep -Seconds 1
     }
+    while (@(Get-TargetBrowserProcesses).Count -gt 0) {
+        Write-Host ''
+        Write-Warning ($script:SelectedBrowser.DisplayName + ' still has background processes running.')
+        Write-Host 'R = Exit the browser using its tray icon or Task Manager, then recheck.'
+        Write-Host 'F = FORCE close remaining browser processes. Unsaved drafts/tabs may be lost.'
+        Write-Host 'C = Cancel setup (default). Any temporary Twitter policy will be restored.'
+        $choice = (Read-Host 'Choose R, F, or C').Trim().ToUpperInvariant()
+        switch ($choice) {
+            'R' {
+                Write-Host 'Waiting up to 30 seconds for the browser to exit...'
+                $retry = (Get-Date).AddSeconds(30)
+                while (@(Get-TargetBrowserProcesses).Count -gt 0 -and (Get-Date) -lt $retry) {
+                    Start-Sleep -Seconds 1
+                }
+            }
+            'F' {
+                $confirm = Read-Host 'Type FORCE to confirm closing browser processes (no site data will be deleted)'
+                if ($confirm -cne 'FORCE') { throw 'Browser force-close was not authorized. Setup cancelled.' }
+                $remaining = @(Get-TargetBrowserProcesses)
+                foreach ($proc in $remaining) {
+                    try { Stop-Process -Id $proc.Id -Force -ErrorAction Stop }
+                    catch { Write-Warning ('Cannot stop browser process ' + $proc.Id + ': ' + $_.Exception.Message) }
+                }
+                $retry = (Get-Date).AddSeconds(12)
+                while (@(Get-TargetBrowserProcesses).Count -gt 0 -and (Get-Date) -lt $retry) {
+                    Start-Sleep -Seconds 1
+                }
+                if (@(Get-TargetBrowserProcesses).Count -gt 0) {
+                    throw 'Browser processes are still running after the approved close. Setup cancelled.'
+                }
+            }
+            default { throw 'Browser close cancelled by user. Setup stopped.' }
+        }
+    }
+    Write-Host ($script:SelectedBrowser.DisplayName + ' has exited.') -ForegroundColor Green
 }
 function Restart-BrowserGracefully([string]$Executable,[string]$Page) {
     Close-BrowserGracefully

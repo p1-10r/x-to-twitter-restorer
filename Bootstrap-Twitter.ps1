@@ -1,6 +1,6 @@
 # Standalone bootstrap: direct .ps1 runs pause; the .cmd wrapper uses -NoPause and handles the prompt.
 [CmdletBinding()]
-param([string]$Repository = 'p1-10r/x-to-twitter-restorer', [ValidateSet('Auto','Brave','Chrome','Edge')][string]$Browser = 'Auto', [switch]$NoPause)
+param([string]$Repository = 'p1-10r/x-to-twitter-restorer', [ValidateSet('Auto','Brave','Chrome','Edge')][string]$Browser = 'Auto', [switch]$NoPause, [switch]$ElevationChild, [string]$OriginalSid = '')
 $ErrorActionPreference = 'Stop'
 $script:BootstrapExitCode = 0
 # Validate repository within the try so direct execution can display errors before closing.
@@ -11,6 +11,13 @@ try {
     $Repository = $Repository.Trim()
     if ($Repository -match '^[A-Za-z0-9_.-]+$') { $Repository = 'p1-10r/' + $Repository }
     if ($Repository -cnotmatch '^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$') { throw 'Use repo or owner/repo.' }
+    . (Join-Path $PSScriptRoot 'scripts\Twitter.Elevation.ps1')
+    if (-not $OriginalSid) { $OriginalSid = [Security.Principal.WindowsIdentity]::GetCurrent().User.Value }
+    $forward = @('-Repository', ('"' + $Repository + '"'), '-Browser', $Browser)
+    if ($NoPause) { $forward += '-NoPause' }
+    $forward += '-ElevationChild'
+    $elevatedChildRan = Invoke-TwitterElevation -ScriptPath $PSCommandPath -OriginalSid $OriginalSid -RelaunchArguments $forward
+    if ($elevatedChildRan) { return }
     Write-Host ('Fetching latest release from: ' + $Repository) -ForegroundColor Cyan
     try {
         $latest = Invoke-RestMethod -Uri "https://api.github.com/repos/$Repository/releases/latest" -Headers @{'User-Agent'='TwitterBlueBirdRestorer/1.4'} -TimeoutSec 30
@@ -55,6 +62,9 @@ try {
     Write-Host ('ERROR: ' + $_.Exception.Message) -ForegroundColor Red
     Write-Host ('At: ' + [string]$_.InvocationInfo.PositionMessage) -ForegroundColor DarkYellow
     $script:BootstrapExitCode = 1
+    if ($ElevationChild -and [Environment]::UserInteractive) {
+        try { $null = Read-Host 'Elevated bootstrap failed. Press Enter after reading the error' } catch { }
+    }
 } finally {
     try { if (Test-Path -LiteralPath $temp) { Remove-Item -LiteralPath $temp -Recurse -Force } }
     catch { Write-Warning ('Temporary download cleanup failed: ' + $_.Exception.Message) }

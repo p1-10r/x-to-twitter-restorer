@@ -1,11 +1,20 @@
 ﻿# Installs/repairs the Twitter PWA policy and stages latest extension in a stable folder.
 [CmdletBinding()]
-param([ValidateSet('Auto','Brave','Chrome','Edge')][string]$Browser = 'Auto', [switch]$SkipBrowserRestart, [switch]$SkipScheduledUpdates, [switch]$FreshPwa)
+param([ValidateSet('Auto','Brave','Chrome','Edge')][string]$Browser = 'Auto', [switch]$SkipBrowserRestart, [switch]$SkipScheduledUpdates, [switch]$FreshPwa, [switch]$ElevationChild, [string]$OriginalSid = '')
 $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'Twitter.Common.ps1')
+. (Join-Path $PSScriptRoot 'Twitter.Elevation.ps1')
 
 $script:PolicyTemporarilyRemoved = $false
 try {
+    if (-not $OriginalSid) { $OriginalSid = [Security.Principal.WindowsIdentity]::GetCurrent().User.Value }
+    $forward = @('-Browser', $Browser)
+    if ($SkipBrowserRestart) { $forward += '-SkipBrowserRestart' }
+    if ($SkipScheduledUpdates) { $forward += '-SkipScheduledUpdates' }
+    if ($FreshPwa) { $forward += '-FreshPwa' }
+    $forward += '-ElevationChild'
+    $elevatedChildRan = Invoke-TwitterElevation -ScriptPath $PSCommandPath -OriginalSid $OriginalSid -RelaunchArguments $forward
+    if ($elevatedChildRan) { return }
     $selected = Select-TwitterBrowser -Requested $Browser
     Initialize-TwitterBrowser $selected
     $browserExe = Find-BrowserExecutable $selected
@@ -43,6 +52,9 @@ try {
         Write-Host '中止しました。設定は変更していません。'
         return
     }
+    # Close the browser BEFORE removing any owned policy. An aborted close
+    # therefore does not change registry state or orphan the previous PWA.
+    if (-not $SkipBrowserRestart) { Close-BrowserGracefully }
     # The owned policy must first be removed and observed by the selected browser before a force-installed app can be uninstalled.
     if (-not $SkipBrowserRestart -and ($FreshPwa -or $existingApps.Count -gt 0)) {
         $script:PolicyTemporarilyRemoved = Remove-OwnedPolicyForFreshInstall
@@ -119,6 +131,9 @@ try {
     if ($script:PolicyTemporarilyRemoved) {
         try { Restore-OwnedPolicyAfterAbort }
         catch { Write-Warning ('Policy restore failed: ' + $_.Exception.Message) }
+    }
+    if ($ElevationChild -and [Environment]::UserInteractive) {
+        try { $null = Read-Host 'Elevated setup failed. Press Enter after reading the error' } catch { }
     }
     throw 'Twitter setup failed. See ERROR above.'
 }
