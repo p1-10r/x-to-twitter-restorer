@@ -1,0 +1,43 @@
+{
+  "manifest_version": 3,
+  "name": "Twitter Blue Bird Restorer",
+  "version": "1.4.3",
+  "description": "x.com のロゴ・UI表記をTwitterへ。Brave PWA 用のタイトルメタ情報も調整（投稿本文は保護）。",
+  "icons": {
+    "16": "assets/icon-16.png",
+    "48": "assets/icon-48.png",
+    "128": "assets/icon-128.png"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://x.com/*",
+        "https://www.x.com/*"
+      ],
+      "js": [
+        "pwa-manifest.js",
+        "brand-rules.js",
+        "favicon-data.js",
+        "content.js"
+      ],
+      "css": [
+        "content.css"
+      ],
+      "run_at": "document_start"
+    }
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": [
+        "assets/twitter-bird.svg",
+        "pwa/twitter.webmanifest",
+        "assets/icon-192.png",
+        "assets/icon-512.png"
+      ],
+      "matches": [
+        "https://x.com/*",
+        "https://www.x.com/*"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,19 @@
+/* SVGの元データは保持し、表示だけを青い鳥に変更する。 */
+svg[data-twitter-restored-logo="true"] {
+  background-image: url("chrome-extension://__MSG_@@extension_id__/assets/twitter-bird.svg") !important;
+  background-repeat: no-repeat !important;
+  background-size: contain !important;
+  background-position: center center !important;
+}
+svg[data-twitter-restored-logo="true"] > * { visibility: hidden !important; }
+
+/* Xの左上ブランドリンク。CSS背景をSVGに描画しない環境向けのオーバーレイ。 */
+a[data-twitter-restored-link="true"] { position: relative !important; }
+a[data-twitter-restored-link="true"] svg[data-twitter-restored-logo="true"] { opacity: 0 !important; }
+a[data-twitter-restored-link="true"]::after {
+  content: "" !important;
+  position: absolute !important;
+  inset: 0 !important;
+  pointer-events: none !important;
+  background: url("chrome-extension://__MSG_@@extension_id__/assets/twitter-bird.svg") center / 65% 65% no-repeat !important;
+}

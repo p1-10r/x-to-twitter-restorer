@@ -1,0 +1,38 @@
+name: Build extension release
+on:
+  push:
+    tags:
+      - 'v*'
+permissions:
+  contents: write
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify manifest version
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import json, os
+          v=json.load(open('extension/manifest.json',encoding='utf-8'))['version']
+          assert 'v'+v == os.environ['GITHUB_REF_NAME'], 'Tag must match manifest version'
+          PY
+      - name: Package and checksum
+        shell: bash
+        run: |
+          mkdir -p dist
+          (cd extension && zip -q -r ../dist/twitter-extension.zip . -x '*.pyc' '__pycache__/*')
+          (cd dist && sha256sum twitter-extension.zip > twitter-extension.zip.sha256)
+          zip -q -r dist/twitter-restorer-kit.zip extension resources scripts *.cmd config.json README.md Bootstrap-Twitter.ps1
+          (cd dist && sha256sum twitter-restorer-kit.zip > twitter-restorer-kit.zip.sha256)
+      - name: Publish GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          gh release create "$GITHUB_REF_NAME" \
+            dist/twitter-extension.zip dist/twitter-extension.zip.sha256 \
+            dist/twitter-restorer-kit.zip dist/twitter-restorer-kit.zip.sha256 \
+            --title "Twitter Blue Bird Restorer $GITHUB_REF_NAME" \
+            --notes "Brave unpacked extension. Import once in brave://extensions; later releases update the same installed folder."
