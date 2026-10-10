@@ -1,9 +1,11 @@
 [CmdletBinding()]
-param()
+param([ValidateSet('Auto','Brave','Chrome','Edge')][string]$Browser = 'Auto')
 $ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot 'Twitter.Common.ps1')
+$selected = Select-TwitterBrowser -Requested $Browser
 $pinFolder = Join-Path $env:APPDATA 'Microsoft\Internet Explorer\Quick Launch\User Pinned\TaskBar'
 $dataFolder = Join-Path $env:LOCALAPPDATA 'TwitterBlueBirdRestorer\TaskbarIcon'
-$stateFile = Join-Path $dataFolder 'shortcut-backups.json'
+$stateFile = Join-Path $dataFolder ('shortcut-backups-' + $selected.Id + '.json')
 if (-not (Test-Path -LiteralPath $stateFile)) {
     Write-Host 'No previous taskbar icon change was recorded.'
     return

@@ -1,52 +1,41 @@
-# Twitter Blue Bird Restorer 1.4.3 🐦
+# Twitter Blue Bird Restorer 🐦
 
-Windows 10/11 + Brave 向け。x.com の **Twitter表記と青い鳥** を復活させる拡張機能と、PWAのアプリ名・アイコンをTwitterにするセットアップキットです。ツイート本文・ユーザー名・プロフィール・入力欄は変更しません。
+X（x.com）を、あの青い鳥の **Twitter** 風に戻すWindows向けツールです。**Google Chrome・Microsoft Edge・Brave** に対応。Windowsの既定ブラウザを自動判別してセットアップします。
 
-## まず試す（ZIPだけで動作するモード）
+投稿本文、ユーザー名、プロフィール文、入力途中の内容は書き換えません。Webサイトの見た目と、Twitterアプリの名前・アイコンを変更します。X公式とは無関係の非公式ツールです。
 
-1. ZIP を展開して、**`Start-Twitter-Setup.cmd`** をダブルクリックします。PowerShell は終了時も開いたままです。
-2. スクリプトは、以前のインストール記録とポリシーを照合し、**このキットが所有するポリシーだけ**を一時解除します。Braveに解除を反映してから再登録するため、Braveを通常終了・再起動させてPWAの登録を待ちます。Windowsの別の管理ポリシーがあるときは停止します。
-3. 表示された `%LOCALAPPDATA%\TwitterBlueBirdRestorer\Extension` を、`brave://extensions` → **デベロッパーモード** → **パッケージ化されていない拡張機能を読み込む** で**最初の1回だけ**選択します。
-4. `brave://apps` から Twitter を起動。デスクトップのショートカットはBraveが作成し、必要ならスクリプトが補完します。タスクバーには起動中アイコンを右クリックして **タスクバーにピン留め** を選択します。
-5. タスクバーの鳥が小さければ **`Start-Twitter-Taskbar-Fix.cmd`**。以前発生した `$Matches` / ハッシュテーブル衝突は修正済みです。ピン留め後に実行してください。戻すには `scripts\Undo-Twitter-Taskbar.ps1` を利用できます。
+## ダウンロードとインストール
 
-このキットにはGitHub公開先が事前設定されています。初回GitHub Releaseの公開前は、最新版の取得に失敗した場合に同梱拡張機能を使用します。GitHubのアイコンURLをポリシーが参照するため、GitHubにコードを公開する前はPWAセットアップを実行しないでください。まず `Start-Twitter-Publish.cmd` で公開し、Actionsのリリース完了後に `Start-Twitter-Setup.cmd` を実行してください。
+1. [最新のダウンロードページ（Releases）](https://github.com/p1-10r/x-to-twitter-restorer/releases/latest) を開いて **`twitter-restorer-kit.zip`** をダウンロードし、すべて解凍します。
+2. **`Start-Twitter-Setup.cmd`** をダブルクリックして起動します。最新版を取得して使いたい場合は **`Start-Twitter-Bootstrap.cmd`** を実行してください。
+3. 表示される変更内容を読み、同意する場合だけ **`REINSTALL`** と入力します。既定ブラウザがChrome / Edge / Brave以外、または判別できないときは、使用するブラウザを選びます。
+4. すでにXまたはTwitterアプリが入っている場合は、アンインストール確認が表示されます。**閲覧データ・サイトデータを削除する項目にはチェックを入れず**、アプリだけ削除してください。
+5. セットアップ後の案内に従い、ブラウザの拡張機能画面で1回だけ「パッケージ化されていない拡張機能を読み込む」を選択します。表示されたフォルダを指定してください。
+6. ブラウザのアプリ画面からTwitterを起動し、必要ならタスクバーへピン留めします。
 
-## v1.4.3: 公開エラー修正
+| ブラウザ | 拡張機能の画面 | アプリの画面 |
+| --- | --- | --- |
+| Chrome | `chrome://extensions` | `chrome://apps` |
+| Edge | `edge://extensions` | `edge://apps` |
+| Brave | `brave://extensions` | `brave://apps` |
 
-Windows PowerShell 5.1で `manifest.json` の日本語が文字化けしてJSON解析に失敗する問題を修正しました。`Publish-Twitter-GitHub.ps1` はUTF-8として厳密に読み込み、拡張機能の `manifest.json`、PWAマニフェスト、`config.json` をGitHubへの送信前に検証します。コマンドの引数渡しも明示化しています。
+**既定ブラウザ以外でセットアップしたいとき**は、PowerShellから `scripts\Install-Twitter.ps1 -Browser Chrome` のように指定できます（`Chrome` / `Edge` / `Brave`）。
 
-v1.4.2で `ERROR: ':' または '}' ...` が出た場合、**v1.4.3のZIPを新しく解凍して** `Start-Twitter-Publish.cmd` を再実行します。GitHub CLIへ再ログインする必要はありません。公開成功後は、[GitHub Actions](https://github.com/p1-10r/x-to-twitter-restorer/actions) で `v1.4.3` のリリース処理が成功したか確認してください。すでにv1.4.2を公開している場合も、v1.4.3は別タグとして公開できます。
+## インストール前に知っておくこと
 
-## GitHub公開と自動更新
+- Windowsの **WebAppInstallForceList** 設定を使うため、選択したブラウザのレジストリ設定を書き換えます。アプリ名・アイコンをTwitterに統一するための処理です。
+- すでにインストール済みのTwitter / Xアプリは、確認を取ったうえで**アプリだけ**アンインストールし、再登録します。ブラウザのCookie・ログイン情報・サイトデータ・閲覧履歴・プロフィールは削除しません。ただし、アンインストール画面でデータ削除を選んだ場合は除きます。
+- インストールの途中でブラウザを終了・再起動します。作業途中のタブや入力内容は事前に保存してください。
+- 拡張機能はx.com内のロゴ、favicon、サービス名、表示タイトルを変更します。投稿本文やユーザーが書いた文章は変更しません。
+- 毎日9時にGitHubの最新版を確認します。最新バージョンの反映には拡張機能の再読み込みが必要な場合があります。
+- ブラウザのセキュリティ仕様上、**拡張機能の初回読み込み**と**タスクバー固定**は手動操作が必要になることがあります。
+- 管理ポリシーが有効な間はTwitterアプリを通常操作でアンインストールできない場合があります。解除したいときは `Start-Twitter-Remove.cmd` を使います。
 
-GitHub公開先は `p1-10r/x-to-twitter-restorer` に設定済みです。`Start-Twitter-Publish.cmd` を実行し、そのまま Enter（空欄）か `x-to-twitter-restorer` と入力できます。Git for Windows / GitHub CLI (`gh`) がなければ、実行時に `INSTALL` の確認を受けて `winget` でインストールします。GitHubログインが必要ならブラウザを開いて認証を案内します。**公開済みの `p1-10r/x-to-twitter-restorer` リポジトリ**に、拡張機能・セットアップ・アイコン・GitHub Actions定義をアップロードします（リポジトリ自体の新規作成はしません）。**公開の最終確認 (`PUBLISH`) が必要**です。
+## 困ったとき
 
-- タグ `v1.4.3` をアップロードすると、GitHub Actions がリリース `twitter-extension.zip` と `twitter-extension.zip.sha256` に加え、セットアップ全体の `twitter-restorer-kit.zip` も生成します。
-- GitHubにリリースができたら、`Start-Twitter-Bootstrap.cmd` をダブルクリックするか、もう一度 `Start-Twitter-Setup.cmd` を実行します。設定済みの `config.json` を使い、最新リリースを取得してSHA-256を照合します。
-- 同時に、ユーザーのタスクスケジューラに **毎日9:00** の更新確認を登録します。更新時は安定したフォルダ内の拡張機能ファイルを更新します。**有効化にはBraveの再起動／拡張機能の再読み込みが必要**です。閲覧中のBraveを自動終了させません。
-- `Start-Twitter-Update.cmd` を実行すれば、手動で今すぐ最新版を確認できます。
-- GitHub公開後は、`Bootstrap-Twitter.ps1`（引数なしでも可）または `Start-Twitter-Bootstrap.cmd` で最新キットを取得してセットアップを起動できます（ブラウザの初回承認は別途必要）。
-- `config.json` の `github_repo` に `owner/repository` を手動設定する方法もあります。GitHub公開済みのリポジトリで指定してください。
+- **画面がすぐ閉じる:** `.ps1` ではなく `.cmd` をダブルクリックしてください。エラーが出てもウィンドウが閉じません。
+- **アイコンが古い:** ブラウザを完全終了して起動し直し、アプリを再確認してください。タスクバー用アイコンを変更するときは `Start-Twitter-Taskbar-Fix.cmd` を使えます。
+- **拡張機能が効かない:** 対象の `chrome://extensions` / `edge://extensions` / `brave://extensions` を開き、拡張機能が有効か確認してください。
+- **元に戻したい:** `Start-Twitter-Remove.cmd` で本ツールのPWA管理ポリシーを解除し、ブラウザを再起動してください。サイトデータは削除しません。拡張機能は拡張機能画面から削除できます。
 
-更新は一般公開されたGitHub Releasesを利用するため、公開リポジトリが必要です。**単純なGitHub上の未公開Chrome拡張機能を、普通の個人PCへ完全無人で初回インストールすることはできません。** Chrome/Braveの管理対象環境やChrome Web Storeでの公開と異なり、最初の開発者モードでの承認が必要です。Windowsのタスクバー固定も環境により利用者の承認が必要です。スクリプトはこれらの制限を回避しません。
-
-## スクリプト
-
-| ファイル | 処理 |
-| --- | --- |
-| `Start-Twitter-Bootstrap.cmd` | GitHubの最新キットをダウンロード。失敗してもウィンドウを閉じずエラーを表示 |
-| `Start-Twitter-Setup.cmd` | 拡張機能同期、所有済みPWAポリシーの更新、Brave再起動、デスクトップ登録、更新タスク作成 |
-| `Start-Twitter-Update.cmd` | GitHubの最新版とSHA-256を確認し、拡張機能ファイルを更新 |
-| `Start-Twitter-Taskbar-Fix.cmd` | ピン留め済みTwitterショートカットのアイコンを拡大版へ更新 |
-| `Start-Twitter-Remove.cmd` | このキットのポリシーのみ削除（ブラウザ再起動が必要） |
-| `Start-Twitter-Publish.cmd` | 公開GitHubリポジトリへの初回アップロードとタグ付け |
-
-`WebAppInstallForceList` は、アプリを強制インストールするBraveのポリシーです。この設定中は、通常のアプリ一覧からTwitterをアンインストールできない場合があります。元に戻す際は `Start-Twitter-Remove.cmd` を先に使用してください。別プロファイルでも同じWindowsユーザーのポリシーが適用され得ます。
-
-## テスト範囲
-
-- Node.js のブランド置換テスト4件、拡張の構成/アセット検査、ZIP整合性検査を実施。
-- Windows上のPowerShell 5.1、Brave実機での一括実行やGitHub Actionsの公開は、この制作環境からは実施できていません。`Bootstrap-Twitter.ps1` を直接実行すると PowerShell の起動方法によっては終了とともに窓が閉じるので、エラー確認には `Start-Twitter-Bootstrap.cmd` を使ってください。WindowsのバージョンやPWAキャッシュにより手順の補完が必要になる場合があります。
-
-Twitter/Xの公式プロダクトではありません。
+対応OS: Windows 10/11。Google Chrome・Microsoft Edge・Braveのデスクトップ版向け。Windowsやブラウザの設定によっては手動操作が必要です。

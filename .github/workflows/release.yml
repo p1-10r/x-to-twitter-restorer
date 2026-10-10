@@ -35,4 +35,4 @@ jobs:
             dist/twitter-extension.zip dist/twitter-extension.zip.sha256 \
             dist/twitter-restorer-kit.zip dist/twitter-restorer-kit.zip.sha256 \
             --title "Twitter Blue Bird Restorer $GITHUB_REF_NAME" \
-            --notes "Brave unpacked extension. Import once in brave://extensions; later releases update the same installed folder."
+            --notes "Chrome, Edge and Brave supported. Install with Start-Twitter-Setup.cmd; load the unpacked extension once in your chosen browser."

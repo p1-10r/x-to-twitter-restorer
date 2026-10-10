@@ -1,16 +1,20 @@
-# Change only the Windows user's pinned Twitter Brave shortcut icon.
+# Change only the Windows user's pinned Twitter shortcut for the selected browser icon.
 # Does not modify browser policies, profiles, installed PWAs, or tweets.
 [CmdletBinding()]
 param(
     [ValidateSet('Big-Blue-Bird', 'White-Circle', 'Blue-Tile')]
-    [string]$Style = 'Big-Blue-Bird'
+    [string]$Style = 'Big-Blue-Bird',
+    [ValidateSet('Auto','Brave','Chrome','Edge')][string]$Browser = 'Auto'
 )
 $ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot 'Twitter.Common.ps1')
+$selected = Select-TwitterBrowser -Requested $Browser
+Initialize-TwitterBrowser $selected
 $pinFolder = Join-Path $env:APPDATA 'Microsoft\Internet Explorer\Quick Launch\User Pinned\TaskBar'
 $dataFolder = Join-Path $env:LOCALAPPDATA 'TwitterBlueBirdRestorer\TaskbarIcon'
 $iconFolder = Join-Path $dataFolder 'icons'
 $backupFolder = Join-Path $dataFolder 'backups'
-$stateFile = Join-Path $dataFolder 'shortcut-backups.json'
+$stateFile = Join-Path $dataFolder ('shortcut-backups-' + $selected.Id + '.json')
 $iconSource = Join-Path $PSScriptRoot ('icons\Twitter-' + $Style + '.ico')
 $iconDestination = Join-Path $iconFolder ('Twitter-' + $Style + '.ico')
 
@@ -23,14 +27,14 @@ if (Test-Path -LiteralPath $stateFile) {
 $shell = New-Object -ComObject WScript.Shell
 $twitterShortcuts = New-Object 'System.Collections.Generic.List[System.IO.FileInfo]'
 foreach ($file in @(Get-ChildItem -LiteralPath $pinFolder -Filter '*.lnk' -File)) {
-    if ($file.BaseName -notmatch '^Twitter(?:\s*\(\d+\))?$') { continue }
+    if ($file.BaseName -notmatch '(?i)^Twitter(?:\s*\([^)]+\))?$') { continue }
     $link = $shell.CreateShortcut($file.FullName)
     $target = [string]$link.TargetPath
-    if ($target -match '(?i)(?:brave|chrome_proxy)') { $twitterShortcuts.Add($file) }
+    if ($target -match $selected.AppPathMatch) { $twitterShortcuts.Add($file) }
 }
 if ($twitterShortcuts.Count -eq 0) {
     throw @'
-Pinned Brave Twitter shortcut not found. Keep Twitter pinned on the taskbar,
+Pinned Twitter shortcut for the selected browser not found. Keep Twitter pinned on the taskbar,
 and try again. For a manual icon change, follow README.txt.
 '@
 }
@@ -67,5 +71,5 @@ try {
     throw
 }
 Write-Host 'Done. Please sign out of Windows and sign in again if the icon does not refresh.' -ForegroundColor Green
-Write-Host 'If the running app still uses its old icon, Brave may be using its own PWA icon rather than the taskbar shortcut icon.'
+Write-Host 'If the running app still uses its old icon, the browser may be using its own PWA icon rather than the taskbar shortcut icon.'
 Write-Host 'You can undo the change with Undo-Twitter-Taskbar.ps1.'

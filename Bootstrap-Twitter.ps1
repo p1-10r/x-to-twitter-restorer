@@ -1,14 +1,16 @@
-# Standalone installer: powershell -File Bootstrap-Twitter.ps1 -Repository owner/repo
+# Standalone bootstrap: direct .ps1 runs pause; the .cmd wrapper uses -NoPause and handles the prompt.
 [CmdletBinding()]
-param([string]$Repository = 'p1-10r/x-to-twitter-restorer')
+param([string]$Repository = 'p1-10r/x-to-twitter-restorer', [ValidateSet('Auto','Brave','Chrome','Edge')][string]$Browser = 'Auto', [switch]$NoPause)
 $ErrorActionPreference = 'Stop'
-$Repository = $Repository.Trim()
-if ($Repository -match '^[A-Za-z0-9_.-]+$') { $Repository = 'p1-10r/' + $Repository }
-if ($Repository -cnotmatch '^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$') { throw 'Use repo or owner/repo.' }
+$script:BootstrapExitCode = 0
+# Validate repository within the try so direct execution can display errors before closing.
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 $cache = Join-Path $env:LOCALAPPDATA 'TwitterBlueBirdRestorer\Kit'
 $temp = Join-Path $env:TEMP ('twitter-bootstrap-' + [guid]::NewGuid().ToString('N'))
 try {
+    $Repository = $Repository.Trim()
+    if ($Repository -match '^[A-Za-z0-9_.-]+$') { $Repository = 'p1-10r/' + $Repository }
+    if ($Repository -cnotmatch '^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$') { throw 'Use repo or owner/repo.' }
     Write-Host ('Fetching latest release from: ' + $Repository) -ForegroundColor Cyan
     try {
         $latest = Invoke-RestMethod -Uri "https://api.github.com/repos/$Repository/releases/latest" -Headers @{'User-Agent'='TwitterBlueBirdRestorer/1.4'} -TimeoutSec 30
@@ -47,11 +49,18 @@ try {
     $config.github_repo = $Repository
     [System.IO.File]::WriteAllText((Join-Path $cache 'config.json'), ($config | ConvertTo-Json -Depth 5), ([System.Text.UTF8Encoding]::new($false)))
     Write-Host ('Downloaded and verified latest release: ' + [string]$manifest.version) -ForegroundColor Green
-    & (Join-Path $cache 'scripts\Install-Twitter.ps1') -FreshPwa
+    & (Join-Path $cache 'scripts\Install-Twitter.ps1') -FreshPwa -Browser $Browser
     if (-not $?) { throw 'Setup did not complete successfully.' }
 } catch {
     Write-Host ('ERROR: ' + $_.Exception.Message) -ForegroundColor Red
-    exit 1
+    Write-Host ('At: ' + [string]$_.InvocationInfo.PositionMessage) -ForegroundColor DarkYellow
+    $script:BootstrapExitCode = 1
 } finally {
-    if (Test-Path -LiteralPath $temp) { Remove-Item -LiteralPath $temp -Recurse -Force }
+    try { if (Test-Path -LiteralPath $temp) { Remove-Item -LiteralPath $temp -Recurse -Force } }
+    catch { Write-Warning ('Temporary download cleanup failed: ' + $_.Exception.Message) }
+    if (-not $NoPause -and [Environment]::UserInteractive) {
+        try { $null = Read-Host 'Press Enter to close this window (or inspect the output first)' } catch { }
+    }
 }
+if ($script:BootstrapExitCode -eq 1) { exit 1 }
+

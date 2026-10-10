@@ -15,9 +15,9 @@ try {
     $newVersion = [string](Get-Content -LiteralPath $manifest -Raw -Encoding UTF8 | ConvertFrom-Json).version
     if ($newVersion -cne $oldVersion) {
         New-Item -ItemType Directory -Path $script:DataRoot -Force | Out-Null
-        Set-Content -LiteralPath (Join-Path $script:DataRoot 'pending-browser-restart.txt') -Value ("Extension updated $oldVersion -> $newVersion. Restart Brave to load new files.")
+        Set-Content -LiteralPath (Join-Path $script:DataRoot 'pending-browser-restart.txt') -Value ("Extension updated $oldVersion -> $newVersion. Reload the extension in your browser to load new files.")
         Add-Content -LiteralPath (Join-Path $script:DataRoot 'update.log') -Value ((Get-Date).ToString('o') + " updated $oldVersion to $newVersion")
-        if (-not $Silent) { Write-Host "Updated to $newVersion. Restart Brave to activate." -ForegroundColor Green }
+        if (-not $Silent) { Write-Host "Updated to $newVersion. Reload the extension in your browser to activate." -ForegroundColor Green }
     } elseif (-not $Silent) { Write-Host "Extension up to date: $newVersion" }
 } catch {
     if (-not (Test-Path -LiteralPath $script:DataRoot)) { New-Item -ItemType Directory -Path $script:DataRoot -Force | Out-Null }

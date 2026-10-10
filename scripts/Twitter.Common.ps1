@@ -3,9 +3,101 @@ $ErrorActionPreference = 'Stop'
 $script:KitRoot = Split-Path -Parent $PSScriptRoot
 $script:DataRoot = Join-Path $env:LOCALAPPDATA 'TwitterBlueBirdRestorer'
 $script:ExtensionRoot = Join-Path $script:DataRoot 'Extension'
-$script:PolicyKey = 'HKCU:\Software\Policies\BraveSoftware\Brave'
-$script:PolicyStatePath = Join-Path $script:DataRoot 'Policy\installed-policy.json'
+$script:PolicyKey = $null
+$script:SelectedBrowser = $null
+$script:PolicyStatePath = $null
 $script:PolicyName = 'WebAppInstallForceList'
+
+# Browser selection is explicit if Windows' HTTPS default is unsupported or unknown.
+function Get-BrowserDefinition([string]$Id) {
+    switch ($Id.ToLowerInvariant()) {
+        'brave' { return [pscustomobject]@{
+            Id='brave'; DisplayName='Brave'; Process='brave'; Executable='brave.exe';
+            Subpath='BraveSoftware\Brave-Browser\Application\brave.exe';
+            PolicyKey='HKCU:\Software\Policies\BraveSoftware\Brave';
+            MachinePolicyKey='HKLM:\Software\Policies\BraveSoftware\Brave';
+            Scheme='brave'; AppPathMatch='(?i)BraveSoftware[\\/]Brave-Browser[\\/]Application[\\/](?:brave|chrome_proxy)\.exe'
+        } }
+        'chrome' { return [pscustomobject]@{
+            Id='chrome'; DisplayName='Google Chrome'; Process='chrome'; Executable='chrome.exe';
+            Subpath='Google\Chrome\Application\chrome.exe';
+            PolicyKey='HKCU:\Software\Policies\Google\Chrome';
+            MachinePolicyKey='HKLM:\Software\Policies\Google\Chrome';
+            Scheme='chrome'; AppPathMatch='(?i)Google[\\/]Chrome[\\/]Application[\\/](?:chrome|chrome_proxy)\.exe'
+        } }
+        'edge' { return [pscustomobject]@{
+            Id='edge'; DisplayName='Microsoft Edge'; Process='msedge'; Executable='msedge.exe';
+            Subpath='Microsoft\Edge\Application\msedge.exe';
+            PolicyKey='HKCU:\Software\Policies\Microsoft\Edge';
+            MachinePolicyKey='HKLM:\Software\Policies\Microsoft\Edge';
+            Scheme='edge'; AppPathMatch='(?i)Microsoft[\\/]Edge[\\/]Application[\\/](?:msedge|msedge_proxy)\.exe'
+        } }
+        default { throw "Unsupported browser: $Id. Choose Chrome, Edge, or Brave." }
+    }
+}
+function Find-BrowserExecutable([object]$Browser) {
+    $candidates = New-Object 'System.Collections.Generic.List[string]'
+    foreach ($parent in @($env:PROGRAMFILES,${env:PROGRAMFILES(X86)},$env:LOCALAPPDATA)) {
+        if (-not [string]::IsNullOrWhiteSpace($parent)) { $candidates.Add((Join-Path $parent $Browser.Subpath)) }
+    }
+    # Edge sometimes uses Program Files (x86), and Chrome supports per-user installs.
+    foreach ($candidate in $candidates) {
+        if (Test-Path -LiteralPath $candidate -PathType Leaf) { return $candidate }
+    }
+    return $null
+}
+function Get-DefaultBrowserId {
+    $root = 'HKCU:\Software\Microsoft\Windows\Shell\Associations\UrlAssociations\https'
+    # Windows 11 25H2 can update UserChoiceLatest without updating UserChoice.
+    foreach ($leaf in @('UserChoiceLatest','UserChoice')) {
+        $key = Join-Path $root $leaf
+        $record = Get-ItemProperty -LiteralPath $key -Name ProgId -ErrorAction SilentlyContinue
+        if ($null -eq $record) { continue }
+        $progId = [string]$record.ProgId
+        if ($progId -match '(?i)^BraveHTML') { return 'brave' }
+        if ($progId -match '(?i)^ChromeHTML') { return 'chrome' }
+        if ($progId -match '(?i)^MSEdgeHTM') { return 'edge' }
+        # Do not fall back to an old UserChoice when the latest choice exists but is unsupported.
+        if ($progId) { return $null }
+    }
+    return $null
+}
+function Select-TwitterBrowser([string]$Requested = 'Auto') {
+    if ($Requested -and $Requested -ne 'Auto') {
+        $result = Get-BrowserDefinition $Requested
+        if (-not (Find-BrowserExecutable $result)) { throw ($result.DisplayName + ' is not installed.') }
+        return $result
+    }
+    $defaultId = Get-DefaultBrowserId
+    if ($defaultId) {
+        $result = Get-BrowserDefinition $defaultId
+        if (Find-BrowserExecutable $result) {
+            Write-Host ('Windows default HTTPS browser: ' + $result.DisplayName) -ForegroundColor Cyan
+            return $result
+        }
+    }
+    $available = @(@('brave','chrome','edge') | ForEach-Object {
+        $candidate = Get-BrowserDefinition $_
+        if (Find-BrowserExecutable $candidate) { $candidate }
+    })
+    if ($available.Count -eq 0) { throw 'No supported browser installed. Install Chrome, Edge, or Brave first.' }
+    Write-Host 'Could not determine a supported default browser. Select the target browser:' -ForegroundColor Yellow
+    for ($i = 0; $i -lt $available.Count; $i++) {
+        Write-Host ('  ' + ($i+1) + '. ' + $available[$i].DisplayName)
+    }
+    $choice = Read-Host 'Browser number (Enter cancels)'
+    if ($choice -notmatch '^\d+$') { throw 'Browser selection cancelled.' }
+    $index = [int]$choice - 1
+    if ($index -lt 0 -or $index -ge $available.Count) { throw 'Invalid browser selection.' }
+    return $available[$index]
+}
+function Initialize-TwitterBrowser([object]$Browser) {
+    $script:SelectedBrowser = $Browser
+    $script:PolicyKey = $Browser.PolicyKey
+    # Keep v1.4.x Brave state in its original location for safe upgrades/removal.
+    $stateName = if ($Browser.Id -eq 'brave') { 'installed-policy.json' } else { 'installed-policy-' + $Browser.Id + '.json' }
+    $script:PolicyStatePath = Join-Path $script:DataRoot ('Policy\' + $stateName)
+}
 
 function Get-KitConfig {
     $file = Join-Path $script:KitRoot 'config.json'
@@ -18,13 +110,11 @@ function Get-KitConfig {
     return $config
 }
 function Find-Brave {
-    $names = @(
-        (Join-Path $env:PROGRAMFILES 'BraveSoftware\Brave-Browser\Application\brave.exe'),
-        (Join-Path ${env:PROGRAMFILES(X86)} 'BraveSoftware\Brave-Browser\Application\brave.exe'),
-        (Join-Path $env:LOCALAPPDATA 'BraveSoftware\Brave-Browser\Application\brave.exe')
-    )
-    foreach ($name in $names) { if ($name -and (Test-Path -LiteralPath $name)) { return $name } }
-    throw 'Brave executable was not found. Install Brave first.'
+    # Compatibility with existing scripts; browser selection now happens in Install-Twitter.ps1.
+    $spec = Get-BrowserDefinition 'brave'
+    $file = Find-BrowserExecutable $spec
+    if (-not $file) { throw 'Brave not installed.' }
+    return $file
 }
 function Get-PolicyValue([string]$key = $script:PolicyKey) {
     if (-not (Test-Path -LiteralPath $key)) { return $null }
@@ -72,7 +162,7 @@ function Assert-ExtensionSource([string]$source) {
 function Install-ExtensionSource([string]$source) {
     $newVersion = Assert-ExtensionSource $source
     if (-not (Test-Path -LiteralPath $script:ExtensionRoot)) { New-Item -ItemType Directory -Path $script:ExtensionRoot -Force | Out-Null }
-    # Keep a stable location so Brave's one-time Load unpacked registration survives updates.
+    # Keep a stable location so a browser's one-time Load unpacked registration survives updates.
     Get-ChildItem -LiteralPath $source -Force | ForEach-Object {
         Copy-Item -LiteralPath $_.FullName -Destination $script:ExtensionRoot -Recurse -Force
     }
@@ -128,7 +218,7 @@ function Get-PolicyIconUrl {
 }
 function Set-TwitterPolicy {
     $old = Get-PolicyValue
-    $machine = Get-PolicyValue 'HKLM:\Software\Policies\BraveSoftware\Brave'
+    $machine = Get-PolicyValue $script:SelectedBrowser.MachinePolicyKey
     if ($machine) { throw 'Machine-managed WebAppInstallForceList already exists; left it unchanged.' }
     $state = $null
     if (Test-Path -LiteralPath $script:PolicyStatePath) {
@@ -155,7 +245,7 @@ function Set-TwitterPolicy {
             custom_name='Twitter'; custom_icon=[ordered]@{url=$iconUrl;hash=$sha}
         }
         $value = ConvertTo-Json -InputObject @($entry) -Depth 8 -Compress
-        if ($old -ceq $value) { Write-Host 'Brave policy is already current.'; return }
+        if ($old -ceq $value) { Write-Host ($script:SelectedBrowser.DisplayName + ' policy is already current.'); return }
         $stateDir = Split-Path -Parent $script:PolicyStatePath
         New-Item -ItemType Directory -Path $stateDir -Force | Out-Null
         # Replaces only policy values proven to have been written by an earlier version of this kit.
@@ -174,7 +264,7 @@ function Set-TwitterPolicy {
             }
             throw
         }
-        Write-Host 'Brave Twitter PWA policy updated.' -ForegroundColor Green
+        Write-Host ($script:SelectedBrowser.DisplayName + ' Twitter PWA policy updated.') -ForegroundColor Green
     } finally {
         if (Test-Path -LiteralPath $tempIcon) { Remove-Item -LiteralPath $tempIcon -Force }
     }
@@ -188,42 +278,103 @@ function Get-TwitterLinks {
         (Join-Path $env:PROGRAMDATA 'Microsoft\Windows\Start Menu\Programs'),
         (Join-Path $env:APPDATA 'Microsoft\Internet Explorer\Quick Launch\User Pinned\TaskBar')
     )
-    $twitterLinks = New-Object 'System.Collections.Generic.List[System.IO.FileInfo]'
+    $links = New-Object 'System.Collections.Generic.List[System.IO.FileInfo]'
     foreach ($folder in $paths) {
         if (-not $folder -or -not (Test-Path -LiteralPath $folder)) { continue }
         foreach ($item in @(Get-ChildItem -LiteralPath $folder -Filter '*.lnk' -File -Recurse -ErrorAction SilentlyContinue)) {
-            if ($item.BaseName -notmatch '^Twitter(?:\s*\(\d+\))?$') { continue }
-            $link = $shell.CreateShortcut($item.FullName)
-            if (([string]$link.TargetPath) -match '(?i)brave|chrome_proxy') { $twitterLinks.Add($item) }
+            if ($item.BaseName -notmatch '(?i)^(?:Twitter|X|x\.com)(?:\s*\([^)]+\))?$') { continue }
+            $shortcut = $shell.CreateShortcut($item.FullName)
+            if (([string]$shortcut.TargetPath) -match $script:SelectedBrowser.AppPathMatch) { $links.Add($item) }
         }
     }
-    return $twitterLinks.ToArray()
+    return $links.ToArray()
 }
 function Ensure-TwitterDesktopShortcut {
     $desktop = [Environment]::GetFolderPath('Desktop')
     $dest = Join-Path $desktop 'Twitter.lnk'
-    $links = @(Get-TwitterLinks)
+    $shell = New-Object -ComObject WScript.Shell
+    if (Test-Path -LiteralPath $dest) {
+        $old = $shell.CreateShortcut($dest)
+        if (([string]$old.TargetPath) -notmatch $script:SelectedBrowser.AppPathMatch) {
+            # Do not hijack another browser's Twitter shortcut.
+            $dest = Join-Path $desktop ('Twitter (' + $script:SelectedBrowser.DisplayName + ').lnk')
+        }
+    }
     if (-not (Test-Path -LiteralPath $dest)) {
-        $source = $links | Where-Object { $_.DirectoryName -ne $desktop } | Select-Object -First 1
-        if ($source) { Copy-Item -LiteralPath $source.FullName -Destination $dest }
+        $source = @(Get-TwitterLinks | Where-Object { $_.FullName -ne $dest } | Select-Object -First 1)
+        if ($source.Count -gt 0) { Copy-Item -LiteralPath $source[0].FullName -Destination $dest }
     }
     if (Test-Path -LiteralPath $dest) {
-        $shell = New-Object -ComObject WScript.Shell
         $link = $shell.CreateShortcut($dest)
-        if ($link.TargetPath -match '(?i)brave|chrome_proxy') {
-            $icon = Join-Path $script:DataRoot 'icons\twitter-large.ico'
-            New-Item -ItemType Directory -Path (Split-Path -Parent $icon) -Force | Out-Null
-            Copy-Item -LiteralPath (Join-Path $script:KitRoot 'resources\twitter-large.ico') -Destination $icon -Force
-            $link.IconLocation = $icon + ',0'
-            $link.Save()
-            Write-Host "Twitter desktop shortcut: $dest" -ForegroundColor Green
-            return $true
+        if (([string]$link.TargetPath) -notmatch $script:SelectedBrowser.AppPathMatch) {
+            Write-Warning 'Existing desktop shortcut belongs to another app. Left unchanged.'
+            return $null
         }
-        Write-Warning 'Twitter.lnk already exists but is not a Brave PWA shortcut; left it unchanged.'
+        $icon = Join-Path $script:DataRoot 'icons\twitter-large.ico'
+        New-Item -ItemType Directory -Path (Split-Path -Parent $icon) -Force | Out-Null
+        Copy-Item -LiteralPath (Join-Path $script:KitRoot 'resources\twitter-large.ico') -Destination $icon -Force
+        $link.IconLocation = $icon + ',0'
+        $link.Save()
+        Write-Host ('Twitter desktop shortcut: ' + $dest) -ForegroundColor Green
+        return $dest
     }
-    return $false
+    return $null
 }
-
+function Get-BrowserTwitterAppRegistrations {
+    $uninstallKey = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall'
+    if (-not (Test-Path -LiteralPath $uninstallKey)) { return @() }
+    $registrations = New-Object 'System.Collections.Generic.List[object]'
+    foreach ($key in @(Get-ChildItem -LiteralPath $uninstallKey -ErrorAction SilentlyContinue)) {
+        $properties = Get-ItemProperty -LiteralPath $key.PSPath -ErrorAction SilentlyContinue
+        if ($null -eq $properties -or -not $properties.PSObject.Properties['DisplayName'] -or -not $properties.PSObject.Properties['UninstallString']) { continue }
+        $label = [string]$properties.DisplayName
+        if ($label -cnotmatch '^(?i:X|Twitter|x\.com|Twitter - X)$') { continue }
+        $uninstall = [string]$properties.UninstallString
+        if ($uninstall -notmatch $script:SelectedBrowser.AppPathMatch) { continue }
+        $app = [regex]::Match($uninstall, '(?i)(?:^|\s)--uninstall-app-id=([a-p]{32})(?=\s|$)')
+        if (-not $app.Success) { continue }
+        if ($uninstall -match '(?i)--user-data-dir=') {
+            throw "Custom browser profile detected for $label. Remove the PWA manually without deleting browsing data, then retry."
+        }
+        $profileMatch = [regex]::Match($uninstall, '(?i)(?:^|\s)--profile-directory=(?:"([^"]+)"|([^\s]+))')
+        $profile = 'Default'
+        if ($profileMatch.Success) {
+            if ($profileMatch.Groups[1].Success) { $profile = $profileMatch.Groups[1].Value }
+            else { $profile = $profileMatch.Groups[2].Value }
+        }
+        if ($profile -cnotmatch '^[A-Za-z0-9 _.-]{1,100}$' -or $profile -match '^\.{1,2}$') {
+            throw 'Unsupported PWA profile name. Remove the PWA manually and rerun setup.'
+        }
+        $registrations.Add([pscustomobject]@{ DisplayName=$label; AppId=$app.Groups[1].Value.ToLowerInvariant(); Profile=$profile })
+    }
+    return $registrations.ToArray()
+}
+function Assert-BrowserPwaUninstalled {
+    param([object[]]$Expected, [string]$Executable)
+    foreach ($target in $Expected) {
+        Write-Host ("Opening {0} uninstall dialog for {1} (profile: {2})." -f $script:SelectedBrowser.DisplayName,$target.DisplayName,$target.Profile) -ForegroundColor Yellow
+        Write-Host 'Leave any Remove browsing/site data option UNCHECKED. Confirm uninstall in the browser.' -ForegroundColor Yellow
+        $args = @('--profile-directory="' + $target.Profile + '"', '--uninstall-app-id=' + $target.AppId)
+        Start-Process -FilePath $Executable -ArgumentList $args | Out-Null
+        $deadline = (Get-Date).AddMinutes(3)
+        do {
+            Start-Sleep -Seconds 2
+            $remaining = @(Get-BrowserTwitterAppRegistrations | Where-Object { $_.AppId -ceq $target.AppId -and $_.Profile -ceq $target.Profile })
+            if ($remaining.Count -eq 0) { break }
+        } while ((Get-Date) -lt $deadline)
+        if ($remaining.Count -ne 0) { throw ('Uninstall was cancelled or timed out for ' + $target.DisplayName + '. Keep site data, uninstall from the browser Apps page, and retry.') }
+        Write-Host ('Uninstalled app registration: ' + $target.DisplayName) -ForegroundColor Green
+    }
+}
+function Restore-OwnedPolicyAfterAbort {
+    if (Get-PolicyValue) { return }
+    if (-not (Test-Path -LiteralPath $script:PolicyStatePath)) { return }
+    $saved = Get-Content -LiteralPath $script:PolicyStatePath -Raw -Encoding UTF8 | ConvertFrom-Json
+    if (-not $saved.policyValue) { return }
+    New-Item -Path $script:PolicyKey -Force | Out-Null
+    New-ItemProperty -LiteralPath $script:PolicyKey -Name $script:PolicyName -PropertyType String -Value ([string]$saved.policyValue) -Force | Out-Null
+    Write-Warning 'Restored the previous kit-owned policy after the interrupted setup. Restart the selected browser if needed.'
+}
 function Remove-OwnedPolicyForFreshInstall {
     $current = Get-PolicyValue
     if (-not $current) { return $false }
@@ -235,22 +386,19 @@ function Remove-OwnedPolicyForFreshInstall {
     Write-Host 'Temporarily removed owned Twitter PWA policy.' -ForegroundColor Yellow
     return $true
 }
-function Close-BraveGracefully {
-    $processes = @(Get-Process -Name brave -ErrorAction SilentlyContinue)
-    if ($processes.Count -gt 0) {
-        foreach ($p in $processes) {
-            try { if ($p.MainWindowHandle -ne [IntPtr]::Zero) { [void]$p.CloseMainWindow() } } catch { }
-        }
-        $limit = (Get-Date).AddSeconds(20)
-        while ((Get-Process -Name brave -ErrorAction SilentlyContinue) -and (Get-Date) -lt $limit) {
-            Start-Sleep -Seconds 1
-        }
-        if (Get-Process -Name brave -ErrorAction SilentlyContinue) {
-            throw 'Brave is still running. Exit Brave completely (including tray/background) and run Setup again.'
-        }
+function Close-BrowserGracefully {
+    $processes = @(Get-Process -Name $script:SelectedBrowser.Process -ErrorAction SilentlyContinue)
+    if ($processes.Count -eq 0) { return }
+    foreach ($p in $processes) {
+        try { if ($p.MainWindowHandle -ne [IntPtr]::Zero) { [void]$p.CloseMainWindow() } } catch { }
+    }
+    $limit = (Get-Date).AddSeconds(20)
+    while ((Get-Process -Name $script:SelectedBrowser.Process -ErrorAction SilentlyContinue) -and (Get-Date) -lt $limit) { Start-Sleep -Seconds 1 }
+    if (Get-Process -Name $script:SelectedBrowser.Process -ErrorAction SilentlyContinue) {
+        throw ($script:SelectedBrowser.DisplayName + ' is still running. Exit it completely, including background tasks, then retry.')
     }
 }
-function Restart-BraveGracefully([string]$brave,[string]$page) {
-    Close-BraveGracefully
-    Start-Process -FilePath $brave -ArgumentList $page
+function Restart-BrowserGracefully([string]$Executable,[string]$Page) {
+    Close-BrowserGracefully
+    Start-Process -FilePath $Executable -ArgumentList $Page
 }
