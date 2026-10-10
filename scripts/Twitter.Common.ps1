@@ -190,8 +190,16 @@ function Sync-TwitterExtension {
                     }
                 } finally { $archive.Dispose() }
                 Expand-Archive -LiteralPath $zip -DestinationPath $staging -Force
-                Install-ExtensionSource -source $staging
-                Write-Host "GitHub release: $repo" -ForegroundColor Green
+                $remoteVersion = [version](Assert-ExtensionSource -source $staging)
+                $bundled = Join-Path $script:KitRoot 'extension'
+                if ((Test-Path -LiteralPath (Join-Path $bundled 'manifest.json')) -and
+                    ([version](Assert-ExtensionSource -source $bundled) -gt $remoteVersion)) {
+                    Write-Host 'Bundled extension is newer than the published release; using bundled files.' -ForegroundColor Yellow
+                    Install-ExtensionSource -source $bundled
+                } else {
+                    Install-ExtensionSource -source $staging
+                    Write-Host "GitHub release: $repo" -ForegroundColor Green
+                }
                 return
             } catch {
                 if ($RequireOnline) { throw }
@@ -208,14 +216,150 @@ function Sync-TwitterExtension {
         if ($staging -and (Test-Path -LiteralPath $staging)) { Remove-Item -LiteralPath $staging -Recurse -Force }
     }
 }
+# Read Chromium's own extension registration for the active profile. This does
+# not modify Preferences (which the browser alone owns).
+function Get-BrowserProfileRoot {
+    switch ($script:SelectedBrowser.Id) {
+        'brave' { return (Join-Path $env:LOCALAPPDATA 'BraveSoftware\Brave-Browser\User Data') }
+        'chrome' { return (Join-Path $env:LOCALAPPDATA 'Google\Chrome\User Data') }
+        'edge' { return (Join-Path $env:LOCALAPPDATA 'Microsoft\Edge\User Data') }
+    }
+    throw 'Unsupported selected browser.'
+}
+function Get-TwitterTargetProfile {
+    $root = Get-BrowserProfileRoot
+    $stateFile = Join-Path $root 'Local State'
+    if (Test-Path -LiteralPath $stateFile) {
+        try {
+            $state = Get-Content -LiteralPath $stateFile -Raw -Encoding UTF8 | ConvertFrom-Json
+            $lastUsed = [string]$state.profile.last_used
+            if ($lastUsed -match '^(Default|Profile [0-9]+)$' -and (Test-Path -LiteralPath (Join-Path $root $lastUsed))) {
+                return $lastUsed
+            }
+        } catch { Write-Warning ('Could not read browser profile selection: ' + $_.Exception.Message) }
+    }
+    return 'Default'
+}
+function Get-TwitterExtensionStatus {
+    param([string]$Profile = (Get-TwitterTargetProfile))
+    $root = Get-BrowserProfileRoot
+    $preferences = Join-Path (Join-Path $root $Profile) 'Preferences'
+    $result = [pscustomobject]@{Installed=$false;Disabled=$false;Profile=$Profile;Id='';Path='';Version='';Reason='Not registered'}
+    if (-not (Test-Path -LiteralPath $preferences)) { return $result }
+    try {
+        $prefs = Get-Content -LiteralPath $preferences -Raw -Encoding UTF8 | ConvertFrom-Json
+    } catch {
+        $result.Reason = 'Browser preferences could not be read: ' + $_.Exception.Message
+        return $result
+    }
+    if ($null -eq $prefs -or $null -eq $prefs.extensions -or $null -eq $prefs.extensions.settings) { return $result }
+    foreach ($property in $prefs.extensions.settings.PSObject.Properties) {
+        $item = $property.Value
+        if ($null -eq $item -or $null -eq $item.manifest) { continue }
+        if ([string]$item.manifest.name -cne 'Twitter Blue Bird Restorer') { continue }
+        $result.Id = [string]$property.Name
+        $result.Path = if ($null -ne $item.PSObject.Properties['path']) { [string]$item.path } else { '' }
+        $result.Version = if ($null -ne $item.manifest.PSObject.Properties['version']) { [string]$item.manifest.version } else { '' }
+        $active = $false
+        try { $active = ([int]$item.state -eq 1) } catch { }
+        if (-not $active) {
+            $result.Disabled = $true
+            $result.Reason = 'Registered but disabled'
+            continue
+        }
+        # An unpacked extension whose folder was moved no longer has usable files.
+        if ($result.Path -and -not (Test-Path -LiteralPath (Join-Path $result.Path 'manifest.json'))) {
+            $result.Reason = 'The registered unpacked extension folder no longer exists'
+            continue
+        }
+        # Only the stable unpacked folder receives automatic file updates.
+        # Old unpacked locations require one-time manual migration.
+        if ($result.Path) {
+            $actualPath = [IO.Path]::GetFullPath($result.Path).TrimEnd('\')
+            $expectedPath = [IO.Path]::GetFullPath($script:ExtensionRoot).TrimEnd('\')
+            if (-not [string]::Equals($actualPath,$expectedPath,[StringComparison]::OrdinalIgnoreCase)) {
+                $result.Reason = 'Extension is registered from an old folder; migrate via Load unpacked from the shown stable folder'
+                continue
+            }
+        }
+        $currentManifest = Join-Path $script:ExtensionRoot 'manifest.json'
+        if (Test-Path -LiteralPath $currentManifest) {
+            $requiredVersion = [string](Get-Content -LiteralPath $currentManifest -Raw -Encoding UTF8 | ConvertFrom-Json).version
+            if ($result.Version -and ([version]$result.Version -lt [version]$requiredVersion)) {
+                $result.Reason = 'Registered extension needs Reload in the browser to activate the new version'
+                continue
+            }
+        }
+        $result.Installed = $true
+        $result.Reason = 'Enabled in browser profile'
+        return $result
+    }
+    return $result
+}
+function Assert-TwitterExtensionReady {
+    param([string]$Executable,[string]$ExtensionsUrl,[string]$Profile = (Get-TwitterTargetProfile))
+    $profile = $Profile
+    $check = Get-TwitterExtensionStatus -Profile $profile
+    if ($check.Installed) {
+        Write-Host ('Browser extension already enabled in profile ' + $profile + ' (ID: ' + $check.Id + ').') -ForegroundColor Green
+        return
+    }
+    Write-Host ''
+    Write-Host ('Extension is not enabled in ' + $script:SelectedBrowser.DisplayName + ' profile ' + $profile + '.') -ForegroundColor Yellow
+    Write-Host ('Reason: ' + $check.Reason)
+    Write-Host 'The browser requires you to approve Load unpacked once; the installer cannot silently bypass that approval.'
+    Write-Host ('Extension folder: ' + $script:ExtensionRoot) -ForegroundColor Cyan
+    Write-Host ('Open ' + $ExtensionsUrl + ' -> Developer mode -> Load unpacked -> select the folder above.')
+    $launchArguments = @('--profile-directory=' + $profile, $ExtensionsUrl)
+    Start-Process -FilePath $Executable -ArgumentList $launchArguments | Out-Null
+    for ($attempt = 1; $attempt -le 6; $attempt++) {
+        $answer = Read-Host 'After loading/enabling the extension press ENTER to verify, or type C to cancel'
+        if ($answer -match '^(?i:C|CANCEL)$') { throw 'Extension approval cancelled; no PWA policy was changed.' }
+        Start-Sleep -Seconds 2
+        $check = Get-TwitterExtensionStatus -Profile $profile
+        if ($check.Installed) {
+            Write-Host ('Extension registration verified (ID: ' + $check.Id + ').') -ForegroundColor Green
+            return
+        }
+        Write-Warning ('Extension still not enabled: ' + $check.Reason)
+    }
+    throw 'Extension registration was not detected. Keep the extension enabled and rerun setup; existing PWA policy was not changed.'
+}
+
 function Get-PolicyIconUrl {
     $config = Get-KitConfig
     if ($config.github_repo) {
-        return "https://raw.githubusercontent.com/$($config.github_repo)/main/resources/twitter-pwa.png"
+        $manifestFile = Join-Path $script:KitRoot 'extension\manifest.json'
+        $revision = '1.5.2'
+        if (Test-Path -LiteralPath $manifestFile) {
+            $revision = [string](Get-Content -LiteralPath $manifestFile -Raw -Encoding UTF8 | ConvertFrom-Json).version
+        }
+        return "https://raw.githubusercontent.com/$($config.github_repo)/main/resources/twitter-pwa.png?v=$revision"
     }
     # Legacy fallback for offline installs. Use GitHub hosting for the larger, optimized icon.
     return 'https://upload.wikimedia.org/wikipedia/commons/7/71/Twitter_Logo_Blue_%282%29.png'
 }
+# Check the hosted icon before removing an existing PWA so a release that
+# has not been published yet cannot trigger a destructive reinstall.
+function Assert-TwitterPublishedIconReady {
+    $config = Get-KitConfig
+    if (-not $config.github_repo) { return }
+    $localIcon = Join-Path $script:KitRoot 'resources\twitter-pwa.png'
+    if (-not (Test-Path -LiteralPath $localIcon)) { throw 'Bundled PWA icon is missing.' }
+    $remoteIcon = Join-Path $env:TEMP ('twitter-icon-check-' + [guid]::NewGuid().ToString('N') + '.png')
+    try {
+        Invoke-WebRequest -Uri (Get-PolicyIconUrl) -OutFile $remoteIcon -UseBasicParsing -TimeoutSec 35
+        $localHash = (Get-FileHash -LiteralPath $localIcon -Algorithm SHA256).Hash
+        $remoteHash = (Get-FileHash -LiteralPath $remoteIcon -Algorithm SHA256).Hash
+        if ($localHash -cne $remoteHash) {
+            throw 'GitHub icon does not match this installer. Publish v1.5.2 with Start-Twitter-Publish.cmd and retry after the release is available.'
+        }
+        Write-Host 'Published transparent PWA icon verified.' -ForegroundColor Green
+    } finally {
+        if (Test-Path -LiteralPath $remoteIcon) { Remove-Item -LiteralPath $remoteIcon -Force }
+    }
+}
+
 function Set-TwitterPolicy {
     $old = Get-PolicyValue
     $machine = Get-PolicyValue $script:SelectedBrowser.MachinePolicyKey
@@ -233,6 +377,15 @@ function Set-TwitterPolicy {
     try {
         Invoke-WebRequest -Uri $iconUrl -OutFile $tempIcon -UseBasicParsing -TimeoutSec 40
         if ((Get-Item -LiteralPath $tempIcon).Length -gt 2MB) { throw 'Policy icon too large.' }
+        # Never create a PWA with a cached/stale white-background icon.
+        $configIcon = Join-Path $script:KitRoot 'resources\twitter-pwa.png'
+        if ((Get-KitConfig).github_repo -and (Test-Path -LiteralPath $configIcon)) {
+                $expectedIconHash = (Get-FileHash -LiteralPath $configIcon -Algorithm SHA256).Hash
+                $actualIconHash = (Get-FileHash -LiteralPath $tempIcon -Algorithm SHA256).Hash
+                if ($expectedIconHash -cne $actualIconHash) {
+                    throw 'GitHub PWA icon is not updated to this release. Publish v1.5.2 and wait for GitHub to refresh, then retry.'
+                }
+        }
         Add-Type -AssemblyName System.Drawing
         $img = [Drawing.Image]::FromFile($tempIcon)
         try {
@@ -438,7 +591,10 @@ function Close-BrowserGracefully {
     }
     Write-Host ($script:SelectedBrowser.DisplayName + ' has exited.') -ForegroundColor Green
 }
-function Restart-BrowserGracefully([string]$Executable,[string]$Page) {
+function Restart-BrowserGracefully([string]$Executable,[string]$Page,[string]$Profile = '') {
     Close-BrowserGracefully
-    Start-Process -FilePath $Executable -ArgumentList $Page
+    $launchArgs = @()
+    if ($Profile) { $launchArgs += ('--profile-directory=' + $Profile) }
+    $launchArgs += $Page
+    Start-Process -FilePath $Executable -ArgumentList $launchArgs | Out-Null
 }

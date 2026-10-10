@@ -22,6 +22,11 @@ try {
     $extensionsUrl = $selected.Scheme + "://extensions"
     $config = Get-KitConfig
     $existingApps = @(Get-BrowserTwitterAppRegistrations)
+    # Prefer the profile of the already-installed X/Twitter app.
+    $extensionProfile = if ($existingApps.Count -eq 1) { [string]$existingApps[0].Profile } else { Get-TwitterTargetProfile }
+    if ($existingApps.Count -gt 1 -and @($existingApps | Select-Object -ExpandProperty Profile -Unique).Count -gt 1) {
+        throw 'X/Twitter apps are installed in multiple profiles. Run the setup separately per browser profile or remove extra apps manually.'
+    }
     $existingPolicy = Get-PolicyValue
     $hasOwnedPolicy = Test-Path -LiteralPath $script:PolicyStatePath
     if ($existingPolicy -and -not $hasOwnedPolicy) {
@@ -52,6 +57,11 @@ try {
         Write-Host '中止しました。設定は変更していません。'
         return
     }
+    # Stage the latest extension and verify browser registration BEFORE uninstalling any app
+    # or changing WebAppInstallForceList. Browser approval is always user-driven.
+    Sync-TwitterExtension
+    Assert-TwitterExtensionReady -Executable $browserExe -ExtensionsUrl $extensionsUrl -Profile $extensionProfile
+    Assert-TwitterPublishedIconReady
     # Close the browser BEFORE removing any owned policy. An aborted close
     # therefore does not change registry state or orphan the previous PWA.
     if (-not $SkipBrowserRestart) { Close-BrowserGracefully }
@@ -59,7 +69,7 @@ try {
     if (-not $SkipBrowserRestart -and ($FreshPwa -or $existingApps.Count -gt 0)) {
         $script:PolicyTemporarilyRemoved = Remove-OwnedPolicyForFreshInstall
         if ($script:PolicyTemporarilyRemoved) {
-            Restart-BrowserGracefully -Executable $browserExe -Page $appsUrl
+            Restart-BrowserGracefully -Executable $browserExe -Page $appsUrl -Profile $extensionProfile
             Write-Host 'Waiting for the browser to recognize removal of the forced-install policy...'
             Start-Sleep -Seconds 10
         }
@@ -73,7 +83,6 @@ try {
     } elseif ($existingApps.Count -gt 0) {
         throw 'Existing apps require a browser restart and native uninstall; remove SkipBrowserRestart and retry.'
     }
-    Sync-TwitterExtension
     Set-TwitterPolicy
 
     # Install the updater's own source scripts so the scheduled task does not rely on Downloads/Desktop.
@@ -95,7 +104,7 @@ try {
 
     if (-not $SkipBrowserRestart) {
         Write-Host ('Restarting ' + $selected.DisplayName + ' to apply the new Twitter policy.')
-        Restart-BrowserGracefully -Executable $browserExe -Page $appsUrl
+        Restart-BrowserGracefully -Executable $browserExe -Page $appsUrl -Profile $extensionProfile
         Write-Host 'Waiting for the browser to create the new Twitter PWA shortcut...'
     }
 
@@ -115,14 +124,14 @@ try {
     }
 
     try {
-        & (Join-Path $PSScriptRoot 'Fix-Twitter-Taskbar.ps1') -Style White-Circle -Browser $selected.Id
+        & (Join-Path $PSScriptRoot 'Fix-Twitter-Taskbar.ps1') -Style Big-Blue-Bird -Browser $selected.Id
     } catch { Write-Host 'Taskbar icon update will be available after pinning Twitter.' }
 
     # The browser controls initial unpacked-extension approval and Windows controls taskbar pin consent.
     Write-Host ''
-    Write-Host 'Two one-time UI actions may be needed:' -ForegroundColor Yellow
-    Write-Host ('  1. ' + $extensionsUrl + ' -> Developer mode -> Load unpacked: ' + $script:ExtensionRoot)
-    Write-Host ('  2. ' + $appsUrl + ' -> Launch Twitter -> right-click taskbar icon -> Pin to taskbar.')
+    Write-Host 'Extension and taskbar status:' -ForegroundColor Yellow
+    Write-Host '  1. The extension was verified during this setup (no action needed).'
+    Write-Host ('  2. ' + $appsUrl + ' -> Launch Twitter -> right-click taskbar icon -> Pin to taskbar (if not pinned).')
     Write-Host 'The selected browser manages the Twitter PWA name/icon through WebAppInstallForceList.' -ForegroundColor Green
     Write-Host ('Extension files stay at: ' + $script:ExtensionRoot)
     if ($config.github_repo) { Write-Host 'Future runs fetch latest release, and the daily updater checks for new files.' }
