@@ -11,7 +11,7 @@ function Get-BrowserProfileRoot { return $tempRoot }
 $script:SelectedBrowser = Get-BrowserDefinition 'brave'
 $script:ExtensionRoot = $extensionFolder
 $manifestPath = Join-Path $extensionFolder 'manifest.json'
-[IO.File]::WriteAllText($manifestPath, '{"name":"Twitter Blue Bird Restorer","version":"1.5.7"}', [Text.Encoding]::UTF8)
+[IO.File]::WriteAllText($manifestPath, '{"name":"Twitter Blue Bird Restorer","version":"1.5.8"}', [Text.Encoding]::UTF8)
 $preferencesPath = Join-Path $profileDir 'Preferences'
 $securePath = Join-Path $profileDir 'Secure Preferences'
 function Test-Case([object]$Prefs,[object]$Secure,[bool]$ExpectedInstalled,[string]$Label) {
@@ -22,14 +22,14 @@ function Test-Case([object]$Prefs,[object]$Secure,[bool]$ExpectedInstalled,[stri
     $status = Get-TwitterExtensionStatus -Profile 'Default'
     if ([bool]$status.Installed -ne $ExpectedInstalled) { throw ('Failed: ' + $Label + ' : ' + $status.Reason) }
 }
-$good = @{extensions=@{settings=@{abc=@{manifest=@{name='Twitter Blue Bird Restorer';version='1.5.7'};state=1;path=$extensionFolder}}}}
-$disabled = @{extensions=@{settings=@{abc=@{manifest=@{name='Twitter Blue Bird Restorer';version='1.5.7'};state=0;path=$extensionFolder}}}}
+$good = @{extensions=@{settings=@{abc=@{manifest=@{name='Twitter Blue Bird Restorer';version='1.5.8'};state=1;path=$extensionFolder}}}}
+$disabled = @{extensions=@{settings=@{abc=@{manifest=@{name='Twitter Blue Bird Restorer';version='1.5.8'};state=0;path=$extensionFolder}}}}
 try {
     Test-Case @{} $null $false 'No extensions node'
     Test-Case @{extensions=@{}} $null $false 'No settings node'
     Test-Case @{extensions=@{settings=@{}}} $null $false 'Empty settings'
     Test-Case @{extensions=@{settings=@{abc=@{state=1}}}} $null $false 'Missing extension manifest'
-    Test-Case @{extensions=@{settings=@{abc=@{manifest=@{name='Twitter Blue Bird Restorer';version='1.5.7'}}}}} $null $false 'Missing state'
+    Test-Case @{extensions=@{settings=@{abc=@{manifest=@{name='Twitter Blue Bird Restorer';version='1.5.8'}}}}} $null $false 'Missing state'
     Test-Case $disabled $null $false 'Disabled extension in Preferences'
     Test-Case $good $null $true 'Enabled extension in Preferences'
     Test-Case @{extensions=@{}} $good $true 'Enabled extension only in Secure Preferences'

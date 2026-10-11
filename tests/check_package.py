@@ -3,7 +3,7 @@ import re
 from pathlib import Path
 root = Path(__file__).resolve().parents[1]
 manifest = json.loads((root / 'extension/manifest.json').read_text(encoding='utf-8'))
-assert manifest['version'] == '1.5.7'
+assert manifest['version'] == '1.5.8'
 assert manifest['manifest_version'] == 3
 assert 'https://x.com/*' in manifest['content_scripts'][0]['matches']
 for js in manifest['content_scripts'][0]['js']:

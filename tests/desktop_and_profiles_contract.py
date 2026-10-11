@@ -13,7 +13,10 @@ windows=(root/'tests/desktop_shortcut_windows.ps1').read_text(encoding='utf-8-si
 assert "Join-Path $tempFolder 'BraveSoftware" in windows
 assert "Join-Path $tempFolder 'Microsoft" in windows
 assert "[IO.File]::WriteAllBytes($binary" in windows
-assert 'Compare-Object $expected $foundNames' in windows
+assert 'Compare-Object $expectedNames $foundNames' in windows
+assert '$expectedNames = @($expected | ForEach-Object { [IO.Path]::GetFileName($_) }' in windows
+assert '$foundNames = @($foundPaths | ForEach-Object { [IO.Path]::GetFileName($_) }' in windows
+assert 'Compare-Object $expected $foundNames' not in windows
 assert 'Twitter (unrelated PWA)' in windows
 assert 'https://x.com.evil.example/' in windows
 assert '[a-p]{32}' in common

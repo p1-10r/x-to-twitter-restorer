@@ -34,14 +34,20 @@ try {
     $urlApp = New-SyntheticShortcut -Name 'Twitter (Brave)' -Arguments '--app=https://x.com/home' -Executable $exe
     $expected = @($matching, $urlApp)
     $found = @(Get-TwitterDesktopLinks -Folders @($tempFolder))
-    $foundNames = @($found | ForEach-Object { $_.FullName })
-    if ($found.Count -ne $expected.Count -or @(Compare-Object $expected $foundNames).Count -gt 0) {
+    $foundPaths = @($found | ForEach-Object { $_.FullName })
+    # WScript.Shell can return 8.3 aliases (RUNNER~1) for shortcuts it creates,
+    # while Get-ChildItem returns the long spelling (runneradmin). Both refer to
+    # the same files. Every link here lives inside our isolated temp fixture;
+    # compare exact .lnk leaf names and counts instead of Windows path spelling.
+    $expectedNames = @($expected | ForEach-Object { [IO.Path]::GetFileName($_) } | Sort-Object)
+    $foundNames = @($foundPaths | ForEach-Object { [IO.Path]::GetFileName($_) } | Sort-Object)
+    if ($found.Count -ne $expected.Count -or @(Compare-Object $expectedNames $foundNames).Count -gt 0) {
         # Diagnostics distinguish a missing match from an accidental extra match.
         foreach ($item in @(Get-ChildItem -LiteralPath $tempFolder -Filter '*.lnk' -File)) {
             $readBack = $shell.CreateShortcut($item.FullName)
             Write-Host ('CHECK: ' + $item.Name + ' target=' + $readBack.TargetPath + ' args=' + $readBack.Arguments)
         }
-        throw ('Failed: expected ' + ($expected -join ', ') + '; found ' + ($foundNames -join ', '))
+        throw ('Failed: expected names ' + ($expectedNames -join ', ') + '; found names ' + ($foundNames -join ', ') + '; full found paths ' + ($foundPaths -join ', '))
     }
     $changed = Repair-TwitterDesktopIcons -Folders @($tempFolder)
     if ($changed -ne $expected.Count) { throw ('Failed: expected ' + $expected.Count + ' repaired PWA links, got ' + $changed) }

@@ -45,4 +45,4 @@ jobs:
             dist/twitter-extension.zip dist/twitter-extension.zip.sha256 \
             dist/twitter-restorer-kit.zip dist/twitter-restorer-kit.zip.sha256 \
             --title "Twitter Blue Bird Restorer $GITHUB_REF_NAME" \
-            --notes "Chrome, Edge and Brave supported. v1.5.7 scans all browser profiles and repairs desktop PWA shortcuts using the transparent icon. Install with Start-Twitter-Setup.cmd; load the unpacked extension once in your chosen browser."
+            --notes "Chrome, Edge and Brave supported. v1.5.8 fixes the Windows desktop shortcut integration test when Windows returns an 8.3 short path. Install with Start-Twitter-Setup.cmd; load the unpacked extension once in your chosen browser."
