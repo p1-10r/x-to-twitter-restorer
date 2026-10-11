@@ -289,16 +289,21 @@ function Get-TwitterEnabledProfiles {
     }
     return $result.ToArray()
 }
+# Read-only inspection of a browser profile. Never edit Chromium Preferences.
+# A loaded-unpacked extension may have a path but no cached manifest (or a
+# localized/stale manifest name). Confirm the stable folder and active state.
 function Get-TwitterExtensionStatus {
     param([string]$Profile = (Get-TwitterTargetProfile))
     $root = Get-BrowserProfileRoot
     $profileDirectory = Join-Path $root $Profile
-    $result = [pscustomobject]@{Installed=$false;Disabled=$false;Profile=$Profile;Id='';Path='';Version='';Reason='Not registered';Source=''}
-    # Windows Chromium browsers commonly store protected extension records in
-    # 'Secure Preferences'. On some profiles they are in 'Preferences' instead.
-    # Read BOTH files (read-only) and accept only an enabled matching extension.
+    $result = [pscustomobject]@{Installed=$false;Disabled=$false;RegistrationPresent=$false;StateDetails=@();EnabledVerified=$false;StateInferred=$false;Profile=$Profile;Id='';Path='';Version='';Reason='Not registered';Source='';RecordsSeen=0}
     $settingsFound = $false
     $readErrors = New-Object 'System.Collections.Generic.List[string]'
+    $stateDetails = New-Object 'System.Collections.Generic.List[string]'
+    $missingStateCandidate = $false
+    $localManifest = Join-Path $script:ExtensionRoot 'manifest.json'
+    $expectedPath = [IO.Path]::GetFullPath($script:ExtensionRoot).TrimEnd('\')
+    $onDiskManifest = $null
     foreach ($fileName in @('Secure Preferences','Preferences')) {
         $preferences = Join-Path $profileDirectory $fileName
         if (-not (Test-Path -LiteralPath $preferences -PathType Leaf)) { continue }
@@ -308,78 +313,130 @@ function Get-TwitterExtensionStatus {
             $readErrors.Add(($fileName + ': ' + $_.Exception.Message))
             continue
         }
-        $extensions = Get-TwitterOptionalProperty -Object $prefs -Name 'extensions'
-        $settings = Get-TwitterOptionalProperty -Object $extensions -Name 'settings'
+        $settings = Get-TwitterOptionalProperty -Object (Get-TwitterOptionalProperty -Object $prefs -Name 'extensions') -Name 'settings'
         if ($null -eq $settings) { continue }
         $settingsFound = $true
-        foreach ($property in $settings.PSObject.Properties) {
+        $records = if ($settings -is [System.Collections.IDictionary]) {
+            @($settings.Keys | ForEach-Object { [pscustomobject]@{Name=[string]$_;Value=$settings[$_]} })
+        } else { @($settings.PSObject.Properties) }
+        $result.RecordsSeen += $records.Count
+        foreach ($property in $records) {
             $item = $property.Value
-            $itemManifest = Get-TwitterOptionalProperty -Object $item -Name 'manifest'
             $itemPath = [string](Get-TwitterOptionalProperty -Object $item -Name 'path')
-            # Some browser versions omit the cached manifest for unpacked extensions.
-            # Use the actual local manifest only for a record with the same stable path.
-            if ($null -eq $itemManifest -and $itemPath) {
+            $samePath = $false
+            if ($itemPath -and [IO.Path]::IsPathRooted($itemPath)) {
                 try {
-                    $actual = [IO.Path]::GetFullPath($itemPath).TrimEnd('\')
-                    $expected = [IO.Path]::GetFullPath($script:ExtensionRoot).TrimEnd('\')
-                    if ([string]::Equals($actual,$expected,[StringComparison]::OrdinalIgnoreCase)) {
-                        $local = Join-Path $actual 'manifest.json'
-                        if (Test-Path -LiteralPath $local -PathType Leaf) {
-                            $itemManifest = Get-Content -LiteralPath $local -Raw -Encoding UTF8 | ConvertFrom-Json -ErrorAction Stop
-                        }
+                    $actualPath = [IO.Path]::GetFullPath($itemPath).TrimEnd('\')
+                    $samePath = [string]::Equals($actualPath,$expectedPath,[StringComparison]::OrdinalIgnoreCase)
+                } catch { }
+            }
+            $itemManifest = Get-TwitterOptionalProperty -Object $item -Name 'manifest'
+            # Some Chromium builds serialize a manifest object as JSON text.
+            if ($itemManifest -is [string]) {
+                try { $itemManifest = ConvertFrom-Json -InputObject $itemManifest -ErrorAction Stop }
+                catch { $itemManifest = $null }
+            }
+            $itemName = [string](Get-TwitterOptionalProperty -Object $itemManifest -Name 'name')
+            # The stable install directory is a stronger identifier than the
+            # browser's optional cached manifest display name.
+            if ($samePath -and (Test-Path -LiteralPath $localManifest -PathType Leaf)) {
+                try {
+                    $onDiskManifest = Get-Content -LiteralPath $localManifest -Raw -Encoding UTF8 | ConvertFrom-Json -ErrorAction Stop
+                    if ([string]$onDiskManifest.name -ceq 'Twitter Blue Bird Restorer') {
+                        $itemManifest = $onDiskManifest
+                        $itemName = 'Twitter Blue Bird Restorer'
                     }
                 } catch { }
             }
-            if ($null -eq $itemManifest) { continue }
-            $itemName = Get-TwitterOptionalProperty -Object $itemManifest -Name 'name'
-            if ([string]$itemName -cne 'Twitter Blue Bird Restorer') { continue }
+            if ($itemName -cne 'Twitter Blue Bird Restorer') { continue }
             $result.Id = [string]$property.Name
             $result.Path = $itemPath
             $result.Version = [string](Get-TwitterOptionalProperty -Object $itemManifest -Name 'version')
             $result.Source = $fileName
+            $result.RegistrationPresent = $true
             $extensionState = Get-TwitterOptionalProperty -Object $item -Name 'state'
-            $active = $false
+            $stateValue = $null
+            $stateLabel = 'missing'
             if ($null -ne $extensionState) {
-                try { $active = ([int]$extensionState -eq 1) } catch { }
+                try {
+                    $parsed = [int]$extensionState
+                    $stateValue = $parsed
+                    $stateLabel = [string]$parsed
+                } catch {
+                    $stateLabel = 'unrecognized'
+                }
             }
-            if (-not $active) {
-                $result.Disabled = $true
-                $result.Reason = 'Registered but disabled (or state is unavailable)'
+            $stateDetails.Add(($fileName + ': ' + $stateLabel))
+            # An explicit 0 is a disabled extension. A missing state is not
+            # equivalent to disabled: Chromium can omit this pref for an
+            # otherwise registered and active unpacked extension. It remains
+            # an inference until the browser confirms it live.
+            if ($null -ne $stateValue -and $stateValue -ne 1) {
+                if ($stateValue -eq 0) {
+                    $result.Disabled = $true
+                    $result.Reason = 'Saved state=0 (disabled); browser UI may differ while settings are not saved'
+                } else {
+                    $result.Reason = 'Unexpected saved state=' + $stateLabel + '; cannot verify whether extension is enabled'
+                }
                 continue
             }
-            # An unpacked extension whose folder was moved has no usable source.
-            if ($result.Path -and -not (Test-Path -LiteralPath (Join-Path $result.Path 'manifest.json'))) {
+            if ($null -ne $extensionState -and $null -eq $stateValue) {
+                $result.Reason = 'Unrecognized state value; browser extension readiness is unknown'
+                continue
+            }
+            if (-not $samePath) {
+                $result.Reason = 'Extension registration uses a different or missing unpacked source folder; reload from the stable folder'
+                continue
+            }
+            if (-not (Test-Path -LiteralPath $localManifest -PathType Leaf)) {
                 $result.Reason = 'The registered unpacked extension folder no longer exists'
                 continue
             }
-            # Only the stable unpacked folder receives automatic file updates.
-            if ($result.Path) {
-                $actualPath = [IO.Path]::GetFullPath($result.Path).TrimEnd('\')
-                $expectedPath = [IO.Path]::GetFullPath($script:ExtensionRoot).TrimEnd('\')
-                if (-not [string]::Equals($actualPath,$expectedPath,[StringComparison]::OrdinalIgnoreCase)) {
-                    $result.Reason = 'Extension is registered from an old folder; migrate via Load unpacked from the shown stable folder'
-                    continue
-                }
+            $requiredVersion = [string](Get-TwitterOptionalProperty -Object $onDiskManifest -Name 'version')
+            $rawCachedManifest = Get-TwitterOptionalProperty -Object $item -Name 'manifest'
+            if ($rawCachedManifest -is [string]) {
+                try { $rawCachedManifest = ConvertFrom-Json -InputObject $rawCachedManifest -ErrorAction Stop }
+                catch { $rawCachedManifest = $null }
             }
-            $currentManifest = Join-Path $script:ExtensionRoot 'manifest.json'
-            if (Test-Path -LiteralPath $currentManifest) {
-                $requiredVersion = [string](Get-Content -LiteralPath $currentManifest -Raw -Encoding UTF8 | ConvertFrom-Json).version
-                if ($result.Version -and ([version]$result.Version -lt [version]$requiredVersion)) {
-                    $result.Reason = 'Registered extension needs Reload in the browser to activate the new version'
-                    continue
-                }
+            $cachedVersion = [string](Get-TwitterOptionalProperty -Object $rawCachedManifest -Name 'version')
+            # If the browser caches an older version, require a reload rather
+            # than treating fresh files on disk as proof the new code is active.
+            if ($cachedVersion -and $requiredVersion -and ([version]$cachedVersion -lt [version]$requiredVersion)) {
+                $result.Reason = 'Registered extension needs Reload in the browser to activate the new version'
+                continue
+            }
+            if ($null -eq $stateValue) {
+                # Valid registration, matching unpacked path and current
+                # manifest, but the browser did not serialize `state`.
+                # Record as a fallback, not a verified live ON state.
+                $missingStateCandidate = $true
+                $result.Reason = 'Registered extension matches source and version; saved state omitted (ON inferred, not independently verified)'
+                continue
             }
             $result.Installed = $true
-            $result.Reason = 'Enabled in browser profile'
+            $result.EnabledVerified = $true
+            $result.StateDetails = @($stateDetails.ToArray())
+            $result.Reason = 'Enabled unpacked extension confirmed by registration path and state=1'
             return $result
         }
     }
+    # Prefer explicit state=1; do not infer if any matching entry says disabled.
+    # An omitted state is treated as install-ready only with an exact source
+    # directory and current manifest match. This never edits browser prefs.
+    if ($missingStateCandidate -and -not $result.Disabled) {
+        $result.Installed = $true
+        $result.StateInferred = $true
+        $result.Reason = 'Registered extension matches source and version; saved state omitted (ON inferred, not independently verified)'
+    }
     if (-not $settingsFound) {
         $result.Reason = 'No extensions.settings found in Preferences or Secure Preferences for this profile'
-        if ($readErrors.Count -gt 0) {
-            $result.Reason += ' (one or more files could not be read; close/reopen the browser and retry)'
-        }
+    } elseif (-not $result.Id) {
+        $result.Reason = 'Browser preferences contain ' + $result.RecordsSeen + ' extension record(s), but none match the stable Twitter extension folder or manifest'
     }
+    if ($readErrors.Count -gt 0) {
+        $result.Reason += ' (one or more browser preference files could not be read)'
+    }
+    $result.StateDetails = @($stateDetails.ToArray())
     return $result
 }
 
@@ -388,12 +445,17 @@ function Assert-TwitterExtensionReady {
     $profile = $Profile
     $check = Get-TwitterExtensionStatus -Profile $profile
     if ($check.Installed) {
-        Write-Host ('Browser extension already enabled in profile ' + $profile + ' (ID: ' + $check.Id + ').') -ForegroundColor Green
+        if ($check.StateInferred) {
+            Write-Host ('Matching extension registration found in profile ' + $profile + ' (ID: ' + $check.Id + '). Saved state is missing; readiness inferred from source and manifest, not live verified.') -ForegroundColor Yellow
+        } else {
+            Write-Host ('Browser extension already enabled in profile ' + $profile + ' (ID: ' + $check.Id + ').') -ForegroundColor Green
+        }
         return
     }
     Write-Host ''
     Write-Host ('Extension is not enabled in ' + $script:SelectedBrowser.DisplayName + ' profile ' + $profile + '.') -ForegroundColor Yellow
     Write-Host ('Reason: ' + $check.Reason)
+    if ($check.RegistrationPresent) { Write-Host ('Saved state by file: ' + (@($check.StateDetails) -join ', ')) }
     $inOtherProfiles = @(Get-TwitterEnabledProfiles | Where-Object { $_.Profile -ne $profile })
     if ($inOtherProfiles.Count -gt 0) {
         foreach ($other in $inOtherProfiles) {
@@ -435,11 +497,16 @@ function Assert-TwitterExtensionReady {
         Start-Sleep -Seconds 2
         $check = Get-TwitterExtensionStatus -Profile $profile
         if ($check.Installed) {
-            Write-Host ('Extension registration verified from ' + $check.Source + ' (ID: ' + $check.Id + ').') -ForegroundColor Green
+            if ($check.StateInferred) {
+                Write-Host ('Matching extension registration found (ID: ' + $check.Id + '); saved state omitted, readiness inferred.') -ForegroundColor Yellow
+            } else {
+                Write-Host ('Extension registration verified from ' + $check.Source + ' (ID: ' + $check.Id + ').') -ForegroundColor Green
+            }
             return
         }
         Write-Warning ('Extension is visible but not yet confirmed from disk: ' + $check.Reason)
-        Write-Host 'If the browser shows the correct enabled extension, you can close/reopen its extensions page and retry.'
+        if ($check.RegistrationPresent) { Write-Host ('Saved state by file: ' + (@($check.StateDetails) -join ', ')) }
+        Write-Host 'If the browser shows it ON, you can confirm visually with V, or fully exit/reopen the browser to flush its saved state.'
     }
     throw 'Extension registration was not detected. Keep the extension enabled and rerun setup; existing PWA policy was not changed.'
 }
@@ -448,7 +515,7 @@ function Get-PolicyIconUrl {
     $config = Get-KitConfig
     if ($config.github_repo) {
         $manifestFile = Join-Path $script:KitRoot 'extension\manifest.json'
-        $revision = '1.5.8'
+        $revision = '1.5.11'
         if (Test-Path -LiteralPath $manifestFile) {
             $revision = [string](Get-Content -LiteralPath $manifestFile -Raw -Encoding UTF8 | ConvertFrom-Json).version
         }
@@ -470,7 +537,7 @@ function Assert-TwitterPublishedIconReady {
         $localHash = (Get-FileHash -LiteralPath $localIcon -Algorithm SHA256).Hash
         $remoteHash = (Get-FileHash -LiteralPath $remoteIcon -Algorithm SHA256).Hash
         if ($localHash -cne $remoteHash) {
-            throw 'GitHub icon does not match this installer. Publish v1.5.8 with Start-Twitter-Publish.cmd and retry after the release is available.'
+            throw 'GitHub icon does not match this installer. Publish v1.5.10 with Start-Twitter-Publish.cmd and retry after the release is available.'
         }
         Write-Host 'Published transparent PWA icon verified.' -ForegroundColor Green
     } finally {
@@ -501,7 +568,7 @@ function Set-TwitterPolicy {
                 $expectedIconHash = (Get-FileHash -LiteralPath $configIcon -Algorithm SHA256).Hash
                 $actualIconHash = (Get-FileHash -LiteralPath $tempIcon -Algorithm SHA256).Hash
                 if ($expectedIconHash -cne $actualIconHash) {
-                    throw 'GitHub PWA icon is not updated to this release. Publish v1.5.8 and wait for GitHub to refresh, then retry.'
+                    throw 'GitHub PWA icon is not updated to this release. Publish v1.5.10 and wait for GitHub to refresh, then retry.'
                 }
         }
         Add-Type -AssemblyName System.Drawing
@@ -589,9 +656,30 @@ function Get-TwitterDesktopLinks {
     }
     return $links.ToArray()
 }
+# Tell Explorer the .lnk and icon changed. This only invalidates the shell icon
+# cache; it does not stop Explorer or delete the user's icon database.
+function Notify-TwitterShellIconChanged {
+    param([string[]]$Paths = @())
+    if (-not ('TwitterShellIconNotifier' -as [type])) {
+        Add-Type -TypeDefinition @'
+using System;
+using System.Runtime.InteropServices;
+public static class TwitterShellIconNotifier {
+    [DllImport("shell32.dll", CharSet = CharSet.Unicode)]
+    public static extern void SHChangeNotify(uint eventId, uint flags, IntPtr item1, IntPtr item2);
+}
+'@
+    }
+    foreach ($path in $Paths) {
+        $pointer = [Runtime.InteropServices.Marshal]::StringToHGlobalUni($path)
+        try { [TwitterShellIconNotifier]::SHChangeNotify([uint32]0x00002000, [uint32]0x0005, $pointer, [IntPtr]::Zero) }
+        finally { [Runtime.InteropServices.Marshal]::FreeHGlobal($pointer) }
+    }
+    [TwitterShellIconNotifier]::SHChangeNotify([uint32]0x08000000, [uint32]0, [IntPtr]::Zero, [IntPtr]::Zero)
+}
 function Repair-TwitterDesktopIcons {
     param([string[]]$Folders = @([Environment]::GetFolderPath('Desktop'),[Environment]::GetFolderPath('CommonDesktopDirectory')))
-    $icon = Join-Path $script:DataRoot 'icons\twitter-large.ico'
+    $icon = Join-Path $script:DataRoot 'icons\twitter-bird-v1.5.10.ico'
     $sourceIcon = Join-Path $script:KitRoot 'resources\twitter-large.ico'
     if (-not (Test-Path -LiteralPath $sourceIcon -PathType Leaf)) { throw 'Transparent Twitter icon is missing.' }
     New-Item -ItemType Directory -Path (Split-Path -Parent $icon) -Force | Out-Null
@@ -599,9 +687,11 @@ function Repair-TwitterDesktopIcons {
     Copy-Item -LiteralPath $sourceIcon -Destination $icon -Force
     $shell = New-Object -ComObject WScript.Shell
     $fixed = 0
+    $changedPaths = New-Object 'System.Collections.Generic.List[string]'
     foreach ($entry in @(Get-TwitterDesktopLinks -Folders $Folders)) {
         try {
             $link = $shell.CreateShortcut($entry.FullName)
+            $before = [string]$link.IconLocation
             $link.IconLocation = $icon + ',0'
             $link.Save()
             # Verify the actual stored shortcut value, not just the input path.
@@ -611,8 +701,15 @@ function Repair-TwitterDesktopIcons {
                 continue
             }
             Write-Host ('Transparent icon set: ' + $entry.FullName) -ForegroundColor Green
+            Write-Host ('  before: ' + $before)
+            Write-Host ('  after:  ' + [string]$verify.IconLocation)
+            $changedPaths.Add($entry.FullName)
             $fixed++
         } catch { Write-Warning ('Cannot change desktop shortcut: ' + $entry.FullName + ' : ' + $_.Exception.Message) }
+    }
+    if ($fixed -gt 0) {
+        try { Notify-TwitterShellIconChanged -Paths $changedPaths.ToArray() }
+        catch { Write-Warning ('Windows icon refresh notification failed: ' + $_.Exception.Message) }
     }
     return $fixed
 }

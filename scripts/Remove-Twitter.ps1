@@ -1,4 +1,4 @@
-# Undo only the policy managed by this kit; never clear unrelated policies.
+﻿# Undo only the policy managed by this kit; never clear unrelated policies.
 [CmdletBinding()]
 param([ValidateSet('Auto','Brave','Chrome','Edge')][string]$Browser = 'Auto')
 $ErrorActionPreference = 'Stop'

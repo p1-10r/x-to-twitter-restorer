@@ -53,7 +53,7 @@ try {
     if ($changed -ne $expected.Count) { throw ('Failed: expected ' + $expected.Count + ' repaired PWA links, got ' + $changed) }
     foreach ($name in $expected) {
         $fixed = $shell.CreateShortcut($name)
-        if ($fixed.IconLocation -notlike '*twitter-large.ico*') { throw ('Failed: PWA icon location not updated: ' + $name) }
+        if ($fixed.IconLocation -notlike '*twitter-bird-v1.5.11.ico*') { throw ('Failed: PWA icon location not updated: ' + $name) }
     }
     foreach ($unchanged in @($unrelated,$wrongBrowser,$fakeApp,$wrongUrl)) {
         if ($shell.CreateShortcut($unchanged).IconLocation -notlike '*shell32.dll*') { throw 'Failed: unrelated shortcut modified.' }

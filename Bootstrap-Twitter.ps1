@@ -1,4 +1,4 @@
-# Standalone bootstrap: direct .ps1 runs pause; the .cmd wrapper uses -NoPause and handles the prompt.
+﻿# Standalone bootstrap: direct .ps1 runs pause; the .cmd wrapper uses -NoPause and handles the prompt.
 [CmdletBinding()]
 param([string]$Repository = 'p1-10r/x-to-twitter-restorer', [ValidateSet('Auto','Brave','Chrome','Edge')][string]$Browser = 'Auto', [switch]$NoPause, [switch]$ElevationChild, [string]$OriginalSid = '')
 $ErrorActionPreference = 'Stop'

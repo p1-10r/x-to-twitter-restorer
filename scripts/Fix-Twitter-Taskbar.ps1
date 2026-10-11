@@ -1,4 +1,4 @@
-# Change only the Windows user's pinned Twitter shortcut for the selected browser icon.
+﻿# Change only the Windows user's pinned Twitter shortcut for the selected browser icon.
 # Does not modify browser policies, profiles, installed PWAs, or tweets.
 [CmdletBinding()]
 param(
@@ -16,7 +16,7 @@ $iconFolder = Join-Path $dataFolder 'icons'
 $backupFolder = Join-Path $dataFolder 'backups'
 $stateFile = Join-Path $dataFolder ('shortcut-backups-' + $selected.Id + '.json')
 $iconSource = Join-Path $PSScriptRoot ('icons\Twitter-' + $Style + '.ico')
-$iconDestination = Join-Path $iconFolder ('Twitter-' + $Style + '.ico')
+$iconDestination = Join-Path $iconFolder ('Twitter-' + $Style + '-v1.5.10.ico')
 
 if (-not (Test-Path -LiteralPath $iconSource)) { throw "Missing icon file: $iconSource" }
 if (-not (Test-Path -LiteralPath $pinFolder)) { throw 'Windows pinned taskbar shortcuts folder not found.' }

@@ -7,7 +7,7 @@ end=script.index('function Assert-TwitterExtensionReady', start)
 block=script[start:end]
 assert 'Get-TwitterOptionalProperty' in script
 assert "-Object $prefs -Name 'extensions'" in block
-assert "-Object $extensions -Name 'settings'" in block
+assert "-Name 'settings'" in block
 for missing in ["-Object $item -Name 'manifest'", "-Object $item -Name 'state'", "-Object $itemManifest -Name 'name'"]:
     assert missing in block, missing
 assert '$prefs.extensions.settings' not in block

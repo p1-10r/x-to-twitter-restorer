@@ -1,4 +1,4 @@
-# Publishes a new version to GitHub, even when the repo already contains commits.
+﻿# Publishes a new version to GitHub, even when the repo already contains commits.
 [CmdletBinding()]
 param([string]$Repository = 'p1-10r/x-to-twitter-restorer')
 $ErrorActionPreference = 'Stop'

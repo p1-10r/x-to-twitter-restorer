@@ -1,4 +1,4 @@
-# Download only the latest published extension; do not terminate a browsing session.
+﻿# Download only the latest published extension; do not terminate a browsing session.
 [CmdletBinding()]
 param([switch]$Silent)
 $ErrorActionPreference = 'Stop'

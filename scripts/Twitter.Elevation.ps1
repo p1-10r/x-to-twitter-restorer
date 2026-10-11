@@ -1,4 +1,4 @@
-# Elevate only after preserving the originating Windows user identity.
+﻿# Elevate only after preserving the originating Windows user identity.
 # Browser-specific policy and PWA registration live under HKCU, so elevating as a
 # different admin account would otherwise silently configure the WRONG profile.
 function Invoke-TwitterElevation {

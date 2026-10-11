@@ -1,4 +1,4 @@
-[CmdletBinding()]
+﻿[CmdletBinding()]
 param([ValidateSet('Auto','Brave','Chrome','Edge')][string]$Browser = 'Auto')
 $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'Twitter.Common.ps1')
