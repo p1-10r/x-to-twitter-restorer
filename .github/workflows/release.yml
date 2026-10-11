@@ -35,4 +35,4 @@ jobs:
             dist/twitter-extension.zip dist/twitter-extension.zip.sha256 \
             dist/twitter-restorer-kit.zip dist/twitter-restorer-kit.zip.sha256 \
             --title "Twitter Blue Bird Restorer $GITHUB_REF_NAME" \
-            --notes "Chrome, Edge and Brave supported. v1.5.3 fixes PowerShell StrictMode errors when Chromium extension settings are missing. Install with Start-Twitter-Setup.cmd; load the unpacked extension once in your chosen browser."
+            --notes "Chrome, Edge and Brave supported. v1.5.4 prevents stale GitHub installers being mixed with newly updated extension files. Install with Start-Twitter-Setup.cmd; load the unpacked extension once in your chosen browser."

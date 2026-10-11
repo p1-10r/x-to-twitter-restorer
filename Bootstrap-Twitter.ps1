@@ -50,13 +50,38 @@ try {
     $manifestFile = Join-Path $expand 'extension\manifest.json'
     $manifest = Get-Content -LiteralPath $manifestFile -Raw -Encoding UTF8 | ConvertFrom-Json
     if ($manifest.name -cne 'Twitter Blue Bird Restorer') { throw 'Unexpected kit contents.' }
-    New-Item -ItemType Directory -Path $cache -Force | Out-Null
-    Get-ChildItem -LiteralPath $expand -Force | ForEach-Object { Copy-Item -LiteralPath $_.FullName -Destination $cache -Recurse -Force }
-    $config = Get-Content -LiteralPath (Join-Path $cache 'config.json') -Raw -Encoding UTF8 | ConvertFrom-Json
+    $releaseVersion = [version]([string]$manifest.version)
+    if ([string]$latest.tag_name -cne ('v' + [string]$manifest.version)) {
+        throw ('GitHub release tag does not match its kit: tag=' + [string]$latest.tag_name + ', kit=v' + [string]$manifest.version)
+    }
+    $localManifests = @(
+        (Join-Path $PSScriptRoot 'extension\manifest.json'),
+        (Join-Path $env:LOCALAPPDATA 'TwitterBlueBirdRestorer\Extension\manifest.json')
+    )
+    foreach ($localManifest in $localManifests) {
+        if (-not (Test-Path -LiteralPath $localManifest)) { continue }
+        $local = Get-Content -LiteralPath $localManifest -Raw -Encoding UTF8 | ConvertFrom-Json
+        $localVersion = [version]([string]$local.version)
+        if ($localVersion -gt $releaseVersion) {
+            throw ("GitHub latest is v{0}, but a local extension/kit is v{1}. Publish v{1} with Start-Twitter-Publish.cmd and wait for GitHub Actions, or run Start-Twitter-Setup.cmd from the extracted v{1} folder." -f $releaseVersion,$localVersion)
+        }
+    }
+    # Stage each download in a new release directory, so an old installer
+    # cannot survive by being mixed with files left in the shared Kit directory.
+    $releaseRoot = Join-Path $cache 'releases'
+    $releaseDir = Join-Path $releaseRoot ('v' + [string]$manifest.version + '-' + [guid]::NewGuid().ToString('N'))
+    New-Item -ItemType Directory -Path $releaseDir -Force | Out-Null
+    Get-ChildItem -LiteralPath $expand -Force | ForEach-Object {
+        Copy-Item -LiteralPath $_.FullName -Destination $releaseDir -Recurse -Force
+    }
+    $cachedManifest = Get-Content -LiteralPath (Join-Path $releaseDir 'extension\manifest.json') -Raw -Encoding UTF8 | ConvertFrom-Json
+    if ([string]$cachedManifest.version -cne [string]$manifest.version) { throw 'Staged installer version mismatch; setup was not started.' }
+    $config = Get-Content -LiteralPath (Join-Path $releaseDir 'config.json') -Raw -Encoding UTF8 | ConvertFrom-Json
     $config.github_repo = $Repository
-    [System.IO.File]::WriteAllText((Join-Path $cache 'config.json'), ($config | ConvertTo-Json -Depth 5), ([System.Text.UTF8Encoding]::new($false)))
+    [System.IO.File]::WriteAllText((Join-Path $releaseDir 'config.json'), ($config | ConvertTo-Json -Depth 5), ([System.Text.UTF8Encoding]::new($false)))
     Write-Host ('Downloaded and verified latest release: ' + [string]$manifest.version) -ForegroundColor Green
-    & (Join-Path $cache 'scripts\Install-Twitter.ps1') -FreshPwa -Browser $Browser
+    Write-Host ('Executing installer from isolated release directory: ' + $releaseDir) -ForegroundColor Cyan
+    & (Join-Path $releaseDir 'scripts\Install-Twitter.ps1') -FreshPwa -Browser $Browser
     if (-not $?) { throw 'Setup did not complete successfully.' }
 } catch {
     Write-Host ('ERROR: ' + $_.Exception.Message) -ForegroundColor Red

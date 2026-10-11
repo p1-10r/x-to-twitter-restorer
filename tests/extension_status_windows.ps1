@@ -11,7 +11,7 @@ function Get-BrowserProfileRoot { return $tempRoot }
 $script:SelectedBrowser = Get-BrowserDefinition 'brave'
 $script:ExtensionRoot = $extensionFolder
 $manifestPath = Join-Path $extensionFolder 'manifest.json'
-[IO.File]::WriteAllText($manifestPath, '{"name":"Twitter Blue Bird Restorer","version":"1.5.3"}', [Text.Encoding]::UTF8)
+[IO.File]::WriteAllText($manifestPath, '{"name":"Twitter Blue Bird Restorer","version":"1.5.4"}', [Text.Encoding]::UTF8)
 $preferencesPath = Join-Path $profileDir 'Preferences'
 function Test-Case([object]$Object,[bool]$ExpectedInstalled,[string]$Label) {
     [IO.File]::WriteAllText($preferencesPath, ($Object | ConvertTo-Json -Depth 20), [Text.Encoding]::UTF8)
@@ -23,9 +23,9 @@ try {
     Test-Case @{extensions=@{}} $false 'No settings node'
     Test-Case @{extensions=@{settings=@{}}} $false 'Empty settings'
     Test-Case @{extensions=@{settings=@{abc=@{state=1}}}} $false 'Missing extension manifest'
-    Test-Case @{extensions=@{settings=@{abc=@{manifest=@{name='Twitter Blue Bird Restorer';version='1.5.3'}}}}} $false 'Missing state'
-    Test-Case @{extensions=@{settings=@{abc=@{manifest=@{name='Twitter Blue Bird Restorer';version='1.5.3'};state=0}}}} $false 'Disabled extension'
-    Test-Case @{extensions=@{settings=@{abc=@{manifest=@{name='Twitter Blue Bird Restorer';version='1.5.3'};state=1;path=$extensionFolder}}}} $true 'Enabled extension'
+    Test-Case @{extensions=@{settings=@{abc=@{manifest=@{name='Twitter Blue Bird Restorer';version='1.5.4'}}}}} $false 'Missing state'
+    Test-Case @{extensions=@{settings=@{abc=@{manifest=@{name='Twitter Blue Bird Restorer';version='1.5.4'};state=0}}}} $false 'Disabled extension'
+    Test-Case @{extensions=@{settings=@{abc=@{manifest=@{name='Twitter Blue Bird Restorer';version='1.5.4'};state=1;path=$extensionFolder}}}} $true 'Enabled extension'
     Write-Host 'PASS: 7 Chromium preferences registration fixtures' -ForegroundColor Green
 } finally {
     Remove-Item -LiteralPath $tempRoot -Force -Recurse -ErrorAction SilentlyContinue

@@ -21,6 +21,9 @@ try {
     $appsUrl = $selected.Scheme + "://apps"
     $extensionsUrl = $selected.Scheme + "://extensions"
     $config = Get-KitConfig
+    $kitManifest = Join-Path $script:KitRoot 'extension\manifest.json'
+    $kitVersion = [string](Get-Content -LiteralPath $kitManifest -Raw -Encoding UTF8 | ConvertFrom-Json).version
+    Write-Host ('Installer source: ' + $script:KitRoot + ' (v' + $kitVersion + ')') -ForegroundColor Cyan
     $existingApps = @(Get-BrowserTwitterAppRegistrations)
     # Prefer the profile of the already-installed X/Twitter app.
     $extensionProfile = if ($existingApps.Count -eq 1) { [string]$existingApps[0].Profile } else { Get-TwitterTargetProfile }

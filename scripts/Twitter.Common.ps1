@@ -177,6 +177,13 @@ function Assert-ExtensionSource([string]$source) {
 }
 function Install-ExtensionSource([string]$source) {
     $newVersion = Assert-ExtensionSource $source
+    $previousManifest = Join-Path $script:ExtensionRoot 'manifest.json'
+    if (Test-Path -LiteralPath $previousManifest) {
+        $previousVersion = [string](Get-Content -LiteralPath $previousManifest -Raw -Encoding UTF8 | ConvertFrom-Json).version
+        if ([version]$previousVersion -gt [version]$newVersion) {
+            throw ("An older installer tried to downgrade the extension from v{0} to v{1}. Use the newer release or publish the matching GitHub version first." -f $previousVersion,$newVersion)
+        }
+    }
     if (-not (Test-Path -LiteralPath $script:ExtensionRoot)) { New-Item -ItemType Directory -Path $script:ExtensionRoot -Force | Out-Null }
     # Keep a stable location so a browser's one-time Load unpacked registration survives updates.
     Get-ChildItem -LiteralPath $source -Force | ForEach-Object {
@@ -357,7 +364,7 @@ function Get-PolicyIconUrl {
     $config = Get-KitConfig
     if ($config.github_repo) {
         $manifestFile = Join-Path $script:KitRoot 'extension\manifest.json'
-        $revision = '1.5.3'
+        $revision = '1.5.4'
         if (Test-Path -LiteralPath $manifestFile) {
             $revision = [string](Get-Content -LiteralPath $manifestFile -Raw -Encoding UTF8 | ConvertFrom-Json).version
         }
@@ -379,7 +386,7 @@ function Assert-TwitterPublishedIconReady {
         $localHash = (Get-FileHash -LiteralPath $localIcon -Algorithm SHA256).Hash
         $remoteHash = (Get-FileHash -LiteralPath $remoteIcon -Algorithm SHA256).Hash
         if ($localHash -cne $remoteHash) {
-            throw 'GitHub icon does not match this installer. Publish v1.5.3 with Start-Twitter-Publish.cmd and retry after the release is available.'
+            throw 'GitHub icon does not match this installer. Publish v1.5.4 with Start-Twitter-Publish.cmd and retry after the release is available.'
         }
         Write-Host 'Published transparent PWA icon verified.' -ForegroundColor Green
     } finally {
@@ -410,7 +417,7 @@ function Set-TwitterPolicy {
                 $expectedIconHash = (Get-FileHash -LiteralPath $configIcon -Algorithm SHA256).Hash
                 $actualIconHash = (Get-FileHash -LiteralPath $tempIcon -Algorithm SHA256).Hash
                 if ($expectedIconHash -cne $actualIconHash) {
-                    throw 'GitHub PWA icon is not updated to this release. Publish v1.5.3 and wait for GitHub to refresh, then retry.'
+                    throw 'GitHub PWA icon is not updated to this release. Publish v1.5.4 and wait for GitHub to refresh, then retry.'
                 }
         }
         Add-Type -AssemblyName System.Drawing

@@ -5,7 +5,7 @@ X（x.com）を、青い鳥の「Twitter」の見た目に戻すWindows用ツー
 ## インストール
 
 1. [最新のリリース](https://github.com/p1-10r/x-to-twitter-restorer/releases/latest) から `twitter-restorer-kit.zip` をダウンロードして解凍します。
-2. `Start-Twitter-Setup.cmd` をダブルクリックします（最新版をGitHubから取得する場合は `Start-Twitter-Bootstrap.cmd`）。
+2. ZIPに同梱されている版を使用する場合は `Start-Twitter-Setup.cmd` をダブルクリックします。GitHubの最新版を取得する場合は `Start-Twitter-Bootstrap.cmd` を使います。
 3. Windowsの管理者確認が表示されたら、変更内容を確認して承認してください。
 4. 既定ブラウザを自動検出します。対象外の場合は Chrome / Edge / Brave から選択できます。
 5. 画面に表示された変更内容を読み、同意する場合に `REINSTALL` と入力します。
@@ -30,6 +30,8 @@ X（x.com）を、青い鳥の「Twitter」の見た目に戻すWindows用ツー
 **拡張機能がインストールされない**：`chrome://extensions` / `edge://extensions` / `brave://extensions` で「Twitter Blue Bird Restorer」が有効か確認してください。Windowsユーザーのブラウザプロファイル単位で登録が必要です。
 
 **アイコンが古いまま**：一度アプリのピン留めを解除し、新しくインストールされたTwitterを起動してピン留めし直してください。アイコンのキャッシュ更新にWindowsのサインアウトが必要なことがあります。
+
+**古い版がダウンロードされた**：GitHubのリリース公開が遅れている場合、Bootstrapは古いインストーラーで上書きせず停止します。ダウンロード済みの新しいZIPに含まれる `Start-Twitter-Setup.cmd` を使用するか、GitHubの最新版公開を待って再試行してください。
 
 **PowerShellが即終了する**：`.ps1` を直接ダブルクリックせず、同梱の `Start-Twitter-Setup.cmd` または `Start-Twitter-Bootstrap.cmd` を実行してください。
 
