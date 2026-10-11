@@ -1,5 +1,5 @@
 ﻿# Run on Windows with: powershell.exe -NoProfile -ExecutionPolicy Bypass -File tests\extension_status_windows.ps1
-# Exercises missing Chromium preference keys under StrictMode without touching the real profile.
+# Synthetic Chromium profile, no edits to the user's browser profile.
 $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $PSScriptRoot
 . (Join-Path $root 'scripts\Twitter.Common.ps1')
@@ -11,22 +11,35 @@ function Get-BrowserProfileRoot { return $tempRoot }
 $script:SelectedBrowser = Get-BrowserDefinition 'brave'
 $script:ExtensionRoot = $extensionFolder
 $manifestPath = Join-Path $extensionFolder 'manifest.json'
-[IO.File]::WriteAllText($manifestPath, '{"name":"Twitter Blue Bird Restorer","version":"1.5.4"}', [Text.Encoding]::UTF8)
+[IO.File]::WriteAllText($manifestPath, '{"name":"Twitter Blue Bird Restorer","version":"1.5.5"}', [Text.Encoding]::UTF8)
 $preferencesPath = Join-Path $profileDir 'Preferences'
-function Test-Case([object]$Object,[bool]$ExpectedInstalled,[string]$Label) {
-    [IO.File]::WriteAllText($preferencesPath, ($Object | ConvertTo-Json -Depth 20), [Text.Encoding]::UTF8)
+$securePath = Join-Path $profileDir 'Secure Preferences'
+function Test-Case([object]$Prefs,[object]$Secure,[bool]$ExpectedInstalled,[string]$Label) {
+    if ($null -eq $Prefs) { Remove-Item -LiteralPath $preferencesPath -ErrorAction SilentlyContinue }
+    else { [IO.File]::WriteAllText($preferencesPath, ($Prefs | ConvertTo-Json -Depth 20), [Text.Encoding]::UTF8) }
+    if ($null -eq $Secure) { Remove-Item -LiteralPath $securePath -ErrorAction SilentlyContinue }
+    else { [IO.File]::WriteAllText($securePath, ($Secure | ConvertTo-Json -Depth 20), [Text.Encoding]::UTF8) }
     $status = Get-TwitterExtensionStatus -Profile 'Default'
     if ([bool]$status.Installed -ne $ExpectedInstalled) { throw ('Failed: ' + $Label + ' : ' + $status.Reason) }
 }
+$good = @{extensions=@{settings=@{abc=@{manifest=@{name='Twitter Blue Bird Restorer';version='1.5.5'};state=1;path=$extensionFolder}}}}
+$disabled = @{extensions=@{settings=@{abc=@{manifest=@{name='Twitter Blue Bird Restorer';version='1.5.5'};state=0;path=$extensionFolder}}}}
 try {
-    Test-Case @{} $false 'No extensions node'
-    Test-Case @{extensions=@{}} $false 'No settings node'
-    Test-Case @{extensions=@{settings=@{}}} $false 'Empty settings'
-    Test-Case @{extensions=@{settings=@{abc=@{state=1}}}} $false 'Missing extension manifest'
-    Test-Case @{extensions=@{settings=@{abc=@{manifest=@{name='Twitter Blue Bird Restorer';version='1.5.4'}}}}} $false 'Missing state'
-    Test-Case @{extensions=@{settings=@{abc=@{manifest=@{name='Twitter Blue Bird Restorer';version='1.5.4'};state=0}}}} $false 'Disabled extension'
-    Test-Case @{extensions=@{settings=@{abc=@{manifest=@{name='Twitter Blue Bird Restorer';version='1.5.4'};state=1;path=$extensionFolder}}}} $true 'Enabled extension'
-    Write-Host 'PASS: 7 Chromium preferences registration fixtures' -ForegroundColor Green
+    Test-Case @{} $null $false 'No extensions node'
+    Test-Case @{extensions=@{}} $null $false 'No settings node'
+    Test-Case @{extensions=@{settings=@{}}} $null $false 'Empty settings'
+    Test-Case @{extensions=@{settings=@{abc=@{state=1}}}} $null $false 'Missing extension manifest'
+    Test-Case @{extensions=@{settings=@{abc=@{manifest=@{name='Twitter Blue Bird Restorer';version='1.5.5'}}}}} $null $false 'Missing state'
+    Test-Case $disabled $null $false 'Disabled extension in Preferences'
+    Test-Case $good $null $true 'Enabled extension in Preferences'
+    Test-Case @{extensions=@{}} $good $true 'Enabled extension only in Secure Preferences'
+    Test-Case $disabled $good $true 'Secure Preferences enabled, Preferences stale disabled'
+    Test-Case $good $disabled $true 'Preferences enabled, Secure Preferences stale disabled'
+    Test-Case $null $good $true 'No normal Preferences, only Secure Preferences'
+    Test-Case $null $null $false 'Neither preferences file exists'
+    Test-Case $good $null $true 'Normal Preferences works without Secure Preferences'
+    Test-Case $null $good $true 'Secure Preferences works without normal Preferences'
+    Write-Host 'PASS: 14 Chromium preferences registration fixtures' -ForegroundColor Green
 } finally {
     Remove-Item -LiteralPath $tempRoot -Force -Recurse -ErrorAction SilentlyContinue
 }

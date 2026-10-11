@@ -1,4 +1,4 @@
-﻿# Change only the Windows user's pinned Twitter shortcut for the selected browser icon.
+# Change only the Windows user's pinned Twitter shortcut for the selected browser icon.
 # Does not modify browser policies, profiles, installed PWAs, or tweets.
 [CmdletBinding()]
 param(

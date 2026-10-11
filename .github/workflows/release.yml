@@ -6,7 +6,15 @@ on:
 permissions:
   contents: write
 jobs:
+  windows-extension-check:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check browser registration parsing on Windows PowerShell 5.1
+        shell: powershell
+        run: .\tests\extension_status_windows.ps1
   release:
+    needs: windows-extension-check
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -35,4 +43,4 @@ jobs:
             dist/twitter-extension.zip dist/twitter-extension.zip.sha256 \
             dist/twitter-restorer-kit.zip dist/twitter-restorer-kit.zip.sha256 \
             --title "Twitter Blue Bird Restorer $GITHUB_REF_NAME" \
-            --notes "Chrome, Edge and Brave supported. v1.5.4 prevents stale GitHub installers being mixed with newly updated extension files. Install with Start-Twitter-Setup.cmd; load the unpacked extension once in your chosen browser."
+            --notes "Chrome, Edge and Brave supported. v1.5.5 fixes extension detection by checking both Preferences and Secure Preferences. Install with Start-Twitter-Setup.cmd; load the unpacked extension once in your chosen browser."

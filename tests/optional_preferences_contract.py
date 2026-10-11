@@ -12,7 +12,13 @@ for missing in ["-Object $item -Name 'manifest'", "-Object $item -Name 'state'",
     assert missing in block, missing
 assert '$prefs.extensions.settings' not in block
 assert '$item.manifest' not in block
-assert "$result.Reason = 'No registered extensions" in block
+assert "'Secure Preferences','Preferences'" in block
+assert 'No extensions.settings found in Preferences or Secure Preferences' in block
+assert 'Get-Content -LiteralPath $preferences -Raw -Encoding UTF8' in block
 assert 'Get-TwitterOptionalProperty -Object $profileState' in script
 assert (root/'tests/extension_status_windows.ps1').exists()
 print('PASS optional Chromium extension registration guards')
+
+assert "Read-Host 'Copy the extension ID" in script
+assert 'User visually confirmed enabled extension ID:' in script
+assert "Read-Host 'Type ENABLED" in script
