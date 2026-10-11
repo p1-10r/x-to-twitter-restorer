@@ -17,17 +17,39 @@ function New-SyntheticShortcut([string]$Name,[string]$Arguments,[string]$Executa
     return $file
 }
 try {
-    $exe = 'C:\Program Files\BraveSoftware\Brave-Browser\Application\brave_proxy.exe'
+    # The hosted Windows runner does not have Brave installed. An unresolved
+    # shortcut target can be normalized away by WScript.Shell. Use real files
+    # inside the disposable fixture, with browser-shaped paths for matching.
+    $exe = Join-Path $tempFolder 'BraveSoftware\Brave-Browser\Application\brave_proxy.exe'
+    $edgeExe = Join-Path $tempFolder 'Microsoft\Edge\Application\msedge_proxy.exe'
+    foreach ($binary in @($exe,$edgeExe)) {
+        New-Item -ItemType Directory -Path (Split-Path -Parent $binary) -Force | Out-Null
+        [IO.File]::WriteAllBytes($binary, [byte[]]@(77,90,0,0))
+    }
     $matching = New-SyntheticShortcut -Name 'Twitter' -Arguments '--profile-directory=Default --app-id=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' -Executable $exe
     $unrelated = New-SyntheticShortcut -Name 'Twitter (normal browser)' -Arguments 'https://x.com/' -Executable $exe
-    $wrongBrowser = New-SyntheticShortcut -Name 'Twitter (Edge)' -Arguments '--app-id=bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb' -Executable 'C:\Program Files (x86)\Microsoft\Edge\Application\msedge_proxy.exe'
+    $wrongBrowser = New-SyntheticShortcut -Name 'Twitter (Edge)' -Arguments '--app-id=bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb' -Executable $edgeExe
+    $fakeApp = New-SyntheticShortcut -Name 'Twitter (unrelated PWA)' -Arguments '--app-id=cccccccccccccccccccccccccccccccc' -Executable $exe
+    $wrongUrl = New-SyntheticShortcut -Name 'Twitter (2)' -Arguments '--app=https://x.com.evil.example/' -Executable $exe
+    $urlApp = New-SyntheticShortcut -Name 'Twitter (Brave)' -Arguments '--app=https://x.com/home' -Executable $exe
+    $expected = @($matching, $urlApp)
     $found = @(Get-TwitterDesktopLinks -Folders @($tempFolder))
-    if ($found.Count -ne 1 -or $found[0].FullName -ne $matching) { throw 'Failed: PWA link matching leaked to unrelated shortcut.' }
+    $foundNames = @($found | ForEach-Object { $_.FullName })
+    if ($found.Count -ne $expected.Count -or @(Compare-Object $expected $foundNames).Count -gt 0) {
+        # Diagnostics distinguish a missing match from an accidental extra match.
+        foreach ($item in @(Get-ChildItem -LiteralPath $tempFolder -Filter '*.lnk' -File)) {
+            $readBack = $shell.CreateShortcut($item.FullName)
+            Write-Host ('CHECK: ' + $item.Name + ' target=' + $readBack.TargetPath + ' args=' + $readBack.Arguments)
+        }
+        throw ('Failed: expected ' + ($expected -join ', ') + '; found ' + ($foundNames -join ', '))
+    }
     $changed = Repair-TwitterDesktopIcons -Folders @($tempFolder)
-    if ($changed -ne 1) { throw 'Failed: expected exactly one repaired PWA link.' }
-    $fixed = $shell.CreateShortcut($matching)
-    if ($fixed.IconLocation -notlike '*twitter-large.ico*') { throw 'Failed: PWA icon location not updated.' }
-    foreach ($unchanged in @($unrelated,$wrongBrowser)) {
+    if ($changed -ne $expected.Count) { throw ('Failed: expected ' + $expected.Count + ' repaired PWA links, got ' + $changed) }
+    foreach ($name in $expected) {
+        $fixed = $shell.CreateShortcut($name)
+        if ($fixed.IconLocation -notlike '*twitter-large.ico*') { throw ('Failed: PWA icon location not updated: ' + $name) }
+    }
+    foreach ($unchanged in @($unrelated,$wrongBrowser,$fakeApp,$wrongUrl)) {
         if ($shell.CreateShortcut($unchanged).IconLocation -notlike '*shell32.dll*') { throw 'Failed: unrelated shortcut modified.' }
     }
     Write-Host 'PASS: Windows PWA shortcut targeted; unrelated links preserved' -ForegroundColor Green

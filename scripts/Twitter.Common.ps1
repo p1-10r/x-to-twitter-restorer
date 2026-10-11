@@ -1,4 +1,4 @@
-Set-StrictMode -Version Latest
+﻿Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 $script:KitRoot = Split-Path -Parent $PSScriptRoot
 $script:DataRoot = Join-Path $env:LOCALAPPDATA 'TwitterBlueBirdRestorer'
@@ -448,7 +448,7 @@ function Get-PolicyIconUrl {
     $config = Get-KitConfig
     if ($config.github_repo) {
         $manifestFile = Join-Path $script:KitRoot 'extension\manifest.json'
-        $revision = '1.5.6'
+        $revision = '1.5.7'
         if (Test-Path -LiteralPath $manifestFile) {
             $revision = [string](Get-Content -LiteralPath $manifestFile -Raw -Encoding UTF8 | ConvertFrom-Json).version
         }
@@ -470,7 +470,7 @@ function Assert-TwitterPublishedIconReady {
         $localHash = (Get-FileHash -LiteralPath $localIcon -Algorithm SHA256).Hash
         $remoteHash = (Get-FileHash -LiteralPath $remoteIcon -Algorithm SHA256).Hash
         if ($localHash -cne $remoteHash) {
-            throw 'GitHub icon does not match this installer. Publish v1.5.6 with Start-Twitter-Publish.cmd and retry after the release is available.'
+            throw 'GitHub icon does not match this installer. Publish v1.5.7 with Start-Twitter-Publish.cmd and retry after the release is available.'
         }
         Write-Host 'Published transparent PWA icon verified.' -ForegroundColor Green
     } finally {
@@ -501,7 +501,7 @@ function Set-TwitterPolicy {
                 $expectedIconHash = (Get-FileHash -LiteralPath $configIcon -Algorithm SHA256).Hash
                 $actualIconHash = (Get-FileHash -LiteralPath $tempIcon -Algorithm SHA256).Hash
                 if ($expectedIconHash -cne $actualIconHash) {
-                    throw 'GitHub PWA icon is not updated to this release. Publish v1.5.6 and wait for GitHub to refresh, then retry.'
+                    throw 'GitHub PWA icon is not updated to this release. Publish v1.5.7 and wait for GitHub to refresh, then retry.'
                 }
         }
         Add-Type -AssemblyName System.Drawing
@@ -570,13 +570,19 @@ function Get-TwitterDesktopLinks {
     foreach ($folder in $Folders) {
         if (-not $folder -or -not (Test-Path -LiteralPath $folder -PathType Container)) { continue }
         foreach ($item in @(Get-ChildItem -LiteralPath $folder -Filter '*.lnk' -File -ErrorAction SilentlyContinue)) {
-            if ($item.BaseName -notmatch '^(?i:Twitter|X|x\.com)(?:[\s()_-].*)?$') { continue }
+            # Exact app name or a known browser/Windows duplicate suffix only.
+            # A user shortcut named "Twitter (normal browser)" is not our PWA.
+            if ($item.BaseName -notmatch '^(?i:Twitter|X|x\.com)(?: \((?i:Brave|Chrome|Google Chrome|Edge|Microsoft Edge|[0-9]+)\)| - (?i:Brave|Chrome|Edge))?$') { continue }
             try {
                 $link = $shell.CreateShortcut($item.FullName)
                 $target = [string]$link.TargetPath
                 $launchArgs = [string]$link.Arguments
                 if ($target -notmatch $script:SelectedBrowser.AppPathMatch) { continue }
-                if ($launchArgs -notmatch '(?i)--app-id(?:=|\s)|--app=https?://(?:www\.)?x\.com(?:/|\s|$)') { continue }
+                # Chrome-based installed PWA launchers use a 32-letter app id.
+                # Never touch ordinary x.com browser links or similarly named apps.
+                $isAppId = $launchArgs -match '(?i)(?:^|\s)--app-id=(?:"?[a-p]{32}"?)(?=\s|$)'
+                $isTwitterUrl = $launchArgs -match '(?i)(?:^|\s)--app=(?:"?https?://(?:www\.)?x\.com(?:/[^"\s]*)?"?)(?=\s|$)'
+                if (-not ($isAppId -or $isTwitterUrl)) { continue }
                 $links.Add($item)
             } catch { Write-Warning ('Unable to inspect desktop shortcut: ' + $item.FullName) }
         }

@@ -6,7 +6,7 @@ root=Path(__file__).resolve().parents[1]
 script=(root/'scripts/Install-Twitter.ps1').read_text(encoding='utf-8-sig')
 common=(root/'scripts/Twitter.Common.ps1').read_text(encoding='utf-8')
 manifest=json.loads((root/'extension/manifest.json').read_text(encoding='utf-8'))
-assert manifest['version']=='1.5.6'
+assert manifest['version']=='1.5.7'
 assert script.index('Assert-TwitterExtensionReady -Executable') < script.index('Remove-OwnedPolicyForFreshInstall')
 assert script.index('Assert-TwitterExtensionReady -Executable') < script.index('Set-TwitterPolicy')
 for t in ['function Get-TwitterExtensionStatus','function Assert-TwitterExtensionReady','Preferences','Load unpacked','Get-TwitterTargetProfile','Registered but disabled','Extension registration was not detected']:

@@ -9,6 +9,14 @@ assert 'Get-TwitterEnabledProfiles' in installer
 assert installer.index('Get-TwitterEnabledProfiles') < installer.index('Assert-TwitterExtensionReady')
 assert installer.index('Repair-TwitterDesktopIcons') > installer.index('Set-TwitterPolicy')
 assert 'function Repair-TwitterDesktopIcons' in common
+windows=(root/'tests/desktop_shortcut_windows.ps1').read_text(encoding='utf-8-sig')
+assert "Join-Path $tempFolder 'BraveSoftware" in windows
+assert "Join-Path $tempFolder 'Microsoft" in windows
+assert "[IO.File]::WriteAllBytes($binary" in windows
+assert 'Compare-Object $expected $foundNames' in windows
+assert 'Twitter (unrelated PWA)' in windows
+assert 'https://x.com.evil.example/' in windows
+assert '[a-p]{32}' in common
 assert "-notmatch $script:SelectedBrowser.AppPathMatch" in common
 assert "--app-id" in common
 assert "IconLocation = $icon + ',0'" in common
