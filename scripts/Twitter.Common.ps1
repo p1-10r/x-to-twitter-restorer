@@ -16,7 +16,7 @@ function Get-BrowserDefinition([string]$Id) {
             Subpath='BraveSoftware\Brave-Browser\Application\brave.exe';
             PolicyKey='HKCU:\Software\Policies\BraveSoftware\Brave';
             MachinePolicyKey='HKLM:\Software\Policies\BraveSoftware\Brave';
-            Scheme='brave'; AppPathMatch='(?i)BraveSoftware[\\/]Brave-Browser[\\/]Application[\\/](?:brave|chrome_proxy)\.exe'
+            Scheme='brave'; AppPathMatch='(?i)BraveSoftware[\\/]Brave-Browser[\\/]Application[\\/](?:brave|brave_proxy|chrome_proxy)\.exe'
         } }
         'chrome' { return [pscustomobject]@{
             Id='chrome'; DisplayName='Google Chrome'; Process='chrome'; Executable='chrome.exe';
@@ -30,7 +30,7 @@ function Get-BrowserDefinition([string]$Id) {
             Subpath='Microsoft\Edge\Application\msedge.exe';
             PolicyKey='HKCU:\Software\Policies\Microsoft\Edge';
             MachinePolicyKey='HKLM:\Software\Policies\Microsoft\Edge';
-            Scheme='edge'; AppPathMatch='(?i)Microsoft[\\/]Edge[\\/]Application[\\/](?:msedge|msedge_proxy)\.exe'
+            Scheme='edge'; AppPathMatch='(?i)Microsoft[\\/]Edge[\\/]Application[\\/](?:msedge|msedge_proxy|chrome_proxy)\.exe'
         } }
         default { throw "Unsupported browser: $Id. Choose Chrome, Edge, or Brave." }
     }
@@ -264,6 +264,31 @@ function Get-TwitterTargetProfile {
     }
     return 'Default'
 }
+# An installed PWA can use a different profile from Local State's last_used.
+# Scan only real Chromium profile directories and never edit their settings.
+function Get-TwitterProfileCandidates {
+    $root = Get-BrowserProfileRoot
+    $result = New-Object 'System.Collections.Generic.List[string]'
+    $primary = Get-TwitterTargetProfile
+    if ($primary -match '^(Default|Profile [0-9]+)$' -and (Test-Path -LiteralPath (Join-Path $root $primary) -PathType Container)) {
+        $result.Add($primary)
+    }
+    if (Test-Path -LiteralPath $root -PathType Container) {
+        foreach ($directory in @(Get-ChildItem -LiteralPath $root -Directory -ErrorAction SilentlyContinue)) {
+            if ($directory.Name -notmatch '^(Default|Profile [0-9]+)$') { continue }
+            if (-not $result.Contains($directory.Name)) { $result.Add($directory.Name) }
+        }
+    }
+    return $result.ToArray()
+}
+function Get-TwitterEnabledProfiles {
+    $result = New-Object 'System.Collections.Generic.List[object]'
+    foreach ($profile in @(Get-TwitterProfileCandidates)) {
+        $status = Get-TwitterExtensionStatus -Profile $profile
+        if ($status.Installed) { $result.Add($status) }
+    }
+    return $result.ToArray()
+}
 function Get-TwitterExtensionStatus {
     param([string]$Profile = (Get-TwitterTargetProfile))
     $root = Get-BrowserProfileRoot
@@ -290,11 +315,26 @@ function Get-TwitterExtensionStatus {
         foreach ($property in $settings.PSObject.Properties) {
             $item = $property.Value
             $itemManifest = Get-TwitterOptionalProperty -Object $item -Name 'manifest'
+            $itemPath = [string](Get-TwitterOptionalProperty -Object $item -Name 'path')
+            # Some browser versions omit the cached manifest for unpacked extensions.
+            # Use the actual local manifest only for a record with the same stable path.
+            if ($null -eq $itemManifest -and $itemPath) {
+                try {
+                    $actual = [IO.Path]::GetFullPath($itemPath).TrimEnd('\')
+                    $expected = [IO.Path]::GetFullPath($script:ExtensionRoot).TrimEnd('\')
+                    if ([string]::Equals($actual,$expected,[StringComparison]::OrdinalIgnoreCase)) {
+                        $local = Join-Path $actual 'manifest.json'
+                        if (Test-Path -LiteralPath $local -PathType Leaf) {
+                            $itemManifest = Get-Content -LiteralPath $local -Raw -Encoding UTF8 | ConvertFrom-Json -ErrorAction Stop
+                        }
+                    }
+                } catch { }
+            }
             if ($null -eq $itemManifest) { continue }
             $itemName = Get-TwitterOptionalProperty -Object $itemManifest -Name 'name'
             if ([string]$itemName -cne 'Twitter Blue Bird Restorer') { continue }
             $result.Id = [string]$property.Name
-            $result.Path = [string](Get-TwitterOptionalProperty -Object $item -Name 'path')
+            $result.Path = $itemPath
             $result.Version = [string](Get-TwitterOptionalProperty -Object $itemManifest -Name 'version')
             $result.Source = $fileName
             $extensionState = Get-TwitterOptionalProperty -Object $item -Name 'state'
@@ -354,6 +394,13 @@ function Assert-TwitterExtensionReady {
     Write-Host ''
     Write-Host ('Extension is not enabled in ' + $script:SelectedBrowser.DisplayName + ' profile ' + $profile + '.') -ForegroundColor Yellow
     Write-Host ('Reason: ' + $check.Reason)
+    $inOtherProfiles = @(Get-TwitterEnabledProfiles | Where-Object { $_.Profile -ne $profile })
+    if ($inOtherProfiles.Count -gt 0) {
+        foreach ($other in $inOtherProfiles) {
+            Write-Warning ('Extension found and enabled in another browser profile: ' + $other.Profile + ' (ID: ' + $other.Id + ').')
+        }
+        Write-Host 'Use the profile that owns the Twitter PWA, or close the other profile and install the extension in this profile.'
+    }
     Write-Host 'The browser requires you to approve Load unpacked once; the installer cannot silently bypass that approval.'
     Write-Host ('Extension folder: ' + $script:ExtensionRoot) -ForegroundColor Cyan
     Write-Host 'The installer checks both Preferences and Secure Preferences; the browser can delay saving changes.'
@@ -401,7 +448,7 @@ function Get-PolicyIconUrl {
     $config = Get-KitConfig
     if ($config.github_repo) {
         $manifestFile = Join-Path $script:KitRoot 'extension\manifest.json'
-        $revision = '1.5.5'
+        $revision = '1.5.6'
         if (Test-Path -LiteralPath $manifestFile) {
             $revision = [string](Get-Content -LiteralPath $manifestFile -Raw -Encoding UTF8 | ConvertFrom-Json).version
         }
@@ -423,7 +470,7 @@ function Assert-TwitterPublishedIconReady {
         $localHash = (Get-FileHash -LiteralPath $localIcon -Algorithm SHA256).Hash
         $remoteHash = (Get-FileHash -LiteralPath $remoteIcon -Algorithm SHA256).Hash
         if ($localHash -cne $remoteHash) {
-            throw 'GitHub icon does not match this installer. Publish v1.5.5 with Start-Twitter-Publish.cmd and retry after the release is available.'
+            throw 'GitHub icon does not match this installer. Publish v1.5.6 with Start-Twitter-Publish.cmd and retry after the release is available.'
         }
         Write-Host 'Published transparent PWA icon verified.' -ForegroundColor Green
     } finally {
@@ -454,7 +501,7 @@ function Set-TwitterPolicy {
                 $expectedIconHash = (Get-FileHash -LiteralPath $configIcon -Algorithm SHA256).Hash
                 $actualIconHash = (Get-FileHash -LiteralPath $tempIcon -Algorithm SHA256).Hash
                 if ($expectedIconHash -cne $actualIconHash) {
-                    throw 'GitHub PWA icon is not updated to this release. Publish v1.5.5 and wait for GitHub to refresh, then retry.'
+                    throw 'GitHub PWA icon is not updated to this release. Publish v1.5.6 and wait for GitHub to refresh, then retry.'
                 }
         }
         Add-Type -AssemblyName System.Drawing
@@ -513,36 +560,78 @@ function Get-TwitterLinks {
     }
     return $links.ToArray()
 }
+# Identify browser-created PWA desktop shortcuts before changing their icons.
+# The shortcut must target the selected browser AND launch a PWA (not a normal
+# browser shortcut to an unrelated site).
+function Get-TwitterDesktopLinks {
+    param([string[]]$Folders = @([Environment]::GetFolderPath('Desktop'),[Environment]::GetFolderPath('CommonDesktopDirectory')))
+    $shell = New-Object -ComObject WScript.Shell
+    $links = New-Object 'System.Collections.Generic.List[System.IO.FileInfo]'
+    foreach ($folder in $Folders) {
+        if (-not $folder -or -not (Test-Path -LiteralPath $folder -PathType Container)) { continue }
+        foreach ($item in @(Get-ChildItem -LiteralPath $folder -Filter '*.lnk' -File -ErrorAction SilentlyContinue)) {
+            if ($item.BaseName -notmatch '^(?i:Twitter|X|x\.com)(?:[\s()_-].*)?$') { continue }
+            try {
+                $link = $shell.CreateShortcut($item.FullName)
+                $target = [string]$link.TargetPath
+                $launchArgs = [string]$link.Arguments
+                if ($target -notmatch $script:SelectedBrowser.AppPathMatch) { continue }
+                if ($launchArgs -notmatch '(?i)--app-id(?:=|\s)|--app=https?://(?:www\.)?x\.com(?:/|\s|$)') { continue }
+                $links.Add($item)
+            } catch { Write-Warning ('Unable to inspect desktop shortcut: ' + $item.FullName) }
+        }
+    }
+    return $links.ToArray()
+}
+function Repair-TwitterDesktopIcons {
+    param([string[]]$Folders = @([Environment]::GetFolderPath('Desktop'),[Environment]::GetFolderPath('CommonDesktopDirectory')))
+    $icon = Join-Path $script:DataRoot 'icons\twitter-large.ico'
+    $sourceIcon = Join-Path $script:KitRoot 'resources\twitter-large.ico'
+    if (-not (Test-Path -LiteralPath $sourceIcon -PathType Leaf)) { throw 'Transparent Twitter icon is missing.' }
+    New-Item -ItemType Directory -Path (Split-Path -Parent $icon) -Force | Out-Null
+    # Keep the ICO outside the extracted release directory for stable Windows links.
+    Copy-Item -LiteralPath $sourceIcon -Destination $icon -Force
+    $shell = New-Object -ComObject WScript.Shell
+    $fixed = 0
+    foreach ($entry in @(Get-TwitterDesktopLinks -Folders $Folders)) {
+        try {
+            $link = $shell.CreateShortcut($entry.FullName)
+            $link.IconLocation = $icon + ',0'
+            $link.Save()
+            # Verify the actual stored shortcut value, not just the input path.
+            $verify = $shell.CreateShortcut($entry.FullName)
+            if ([string]$verify.IconLocation -notlike ($icon + '*')) {
+                Write-Warning ('Desktop shortcut icon could not be verified: ' + $entry.FullName)
+                continue
+            }
+            Write-Host ('Transparent icon set: ' + $entry.FullName) -ForegroundColor Green
+            $fixed++
+        } catch { Write-Warning ('Cannot change desktop shortcut: ' + $entry.FullName + ' : ' + $_.Exception.Message) }
+    }
+    return $fixed
+}
 function Ensure-TwitterDesktopShortcut {
     $desktop = [Environment]::GetFolderPath('Desktop')
     $dest = Join-Path $desktop 'Twitter.lnk'
     $shell = New-Object -ComObject WScript.Shell
-    if (Test-Path -LiteralPath $dest) {
-        $old = $shell.CreateShortcut($dest)
-        if (([string]$old.TargetPath) -notmatch $script:SelectedBrowser.AppPathMatch) {
-            # Do not hijack another browser's Twitter shortcut.
-            $dest = Join-Path $desktop ('Twitter (' + $script:SelectedBrowser.DisplayName + ').lnk')
-        }
-    }
-    if (-not (Test-Path -LiteralPath $dest)) {
+    $existing = @(Get-TwitterDesktopLinks)
+    if ($existing.Count -eq 0) {
+        # Copy a real PWA link from the Start menu rather than creating a regular
+        # browser shortcut that would lose the installed app identity.
         $source = @(Get-TwitterLinks | Where-Object { $_.FullName -ne $dest } | Select-Object -First 1)
-        if ($source.Count -gt 0) { Copy-Item -LiteralPath $source[0].FullName -Destination $dest }
-    }
-    if (Test-Path -LiteralPath $dest) {
-        $link = $shell.CreateShortcut($dest)
-        if (([string]$link.TargetPath) -notmatch $script:SelectedBrowser.AppPathMatch) {
-            Write-Warning 'Existing desktop shortcut belongs to another app. Left unchanged.'
-            return $null
+        if ($source.Count -eq 0) { return $null }
+        if (Test-Path -LiteralPath $dest) {
+            $dest = Join-Path $desktop ('Twitter (' + $script:SelectedBrowser.DisplayName + ').lnk')
+            if (Test-Path -LiteralPath $dest) { return $null }
         }
-        $icon = Join-Path $script:DataRoot 'icons\twitter-large.ico'
-        New-Item -ItemType Directory -Path (Split-Path -Parent $icon) -Force | Out-Null
-        Copy-Item -LiteralPath (Join-Path $script:KitRoot 'resources\twitter-large.ico') -Destination $icon -Force
-        $link.IconLocation = $icon + ',0'
-        $link.Save()
-        Write-Host ('Twitter desktop shortcut: ' + $dest) -ForegroundColor Green
-        return $dest
+        Copy-Item -LiteralPath $source[0].FullName -Destination $dest
+        $existing = @(Get-TwitterDesktopLinks)
     }
-    return $null
+    if ($existing.Count -eq 0) { return $null }
+    $null = Repair-TwitterDesktopIcons
+    $preferred = @($existing | Where-Object { $_.DirectoryName -eq $desktop } | Select-Object -First 1)
+    if ($preferred.Count -gt 0) { return $preferred[0].FullName }
+    return $existing[0].FullName
 }
 function Get-BrowserTwitterAppRegistrations {
     $uninstallKey = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall'

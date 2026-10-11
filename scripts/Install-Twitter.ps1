@@ -63,6 +63,24 @@ try {
     # Stage the latest extension and verify browser registration BEFORE uninstalling any app
     # or changing WebAppInstallForceList. Browser approval is always user-driven.
     Sync-TwitterExtension
+    if ($existingApps.Count -eq 0) {
+        $currentStatus = Get-TwitterExtensionStatus -Profile $extensionProfile
+        if (-not $currentStatus.Installed) {
+            $foundProfiles = @(Get-TwitterEnabledProfiles)
+            if ($foundProfiles.Count -eq 1) {
+                $extensionProfile = [string]$foundProfiles[0].Profile
+                Write-Host ('Extension detected automatically in profile ' + $extensionProfile + '; using that profile for PWA installation.') -ForegroundColor Cyan
+            } elseif ($foundProfiles.Count -gt 1) {
+                Write-Warning 'Extension enabled in multiple profiles. Select the browser profile for PWA installation.'
+                foreach ($found in $foundProfiles) { Write-Host ('  ' + $found.Profile + ' : ' + $found.Id) }
+                $chosenProfile = (Read-Host 'Enter exact profile directory (Enter cancels)').Trim()
+                if (@($foundProfiles | Where-Object { $_.Profile -ceq $chosenProfile }).Count -ne 1) {
+                    throw 'Browser profile selection cancelled or invalid; no PWA was removed.'
+                }
+                $extensionProfile = $chosenProfile
+            }
+        }
+    }
     Assert-TwitterExtensionReady -Executable $browserExe -ExtensionsUrl $extensionsUrl -Profile $extensionProfile
     Assert-TwitterPublishedIconReady
     # Close the browser BEFORE removing any owned policy. An aborted close
@@ -126,6 +144,12 @@ try {
         catch { Write-Warning ('Could not launch Twitter app shortcut: ' + $_.Exception.Message) }
     }
 
+    # Chromium can create a second default desktop shortcut after our first
+    # link was updated. Repair all matching PWA links once more after launch.
+    if ($desktopShortcut -and -not $SkipBrowserRestart) {
+        Start-Sleep -Seconds 3
+        $null = Repair-TwitterDesktopIcons
+    }
     try {
         & (Join-Path $PSScriptRoot 'Fix-Twitter-Taskbar.ps1') -Style Big-Blue-Bird -Browser $selected.Id
     } catch { Write-Host 'Taskbar icon update will be available after pinning Twitter.' }

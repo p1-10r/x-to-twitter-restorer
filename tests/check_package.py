@@ -3,14 +3,14 @@ import re
 from pathlib import Path
 root = Path(__file__).resolve().parents[1]
 manifest = json.loads((root / 'extension/manifest.json').read_text(encoding='utf-8'))
-assert manifest['version'] == '1.5.5'
+assert manifest['version'] == '1.5.6'
 assert manifest['manifest_version'] == 3
 assert 'https://x.com/*' in manifest['content_scripts'][0]['matches']
 for js in manifest['content_scripts'][0]['js']:
     assert (root / 'extension' / js).is_file()
 for icon in manifest['icons'].values():
     assert (root / 'extension' / icon).is_file()
-for script in ('Install-Twitter.ps1','Update-Twitter.ps1','Remove-Twitter.ps1','Twitter.Common.ps1','Fix-Twitter-Taskbar.ps1'):
+for script in ('Install-Twitter.ps1','Update-Twitter.ps1','Remove-Twitter.ps1','Twitter.Common.ps1','Fix-Twitter-Taskbar.ps1','Repair-Twitter-Desktop.ps1'):
     assert (root / 'scripts' / script).is_file()
 fix = (root / 'scripts/Fix-Twitter-Taskbar.ps1').read_text(encoding='utf-8')
 assert '$matches +=' not in fix.lower()
