@@ -99,6 +99,22 @@ function Initialize-TwitterBrowser([object]$Browser) {
     $script:PolicyStatePath = Join-Path $script:DataRoot ('Policy\' + $stateName)
 }
 
+# JSON preference documents are schema-flexible: Chromium does not always
+# create `extensions` / `settings` until an extension has been installed.
+# Under Set-StrictMode, direct access to a missing field throws, so inspect
+# PSObject.Properties before reading any optional field.
+function Get-TwitterOptionalProperty {
+    param([AllowNull()][object]$Object, [Parameter(Mandatory)][string]$Name)
+    if ($null -eq $Object) { return $null }
+    if ($Object -is [System.Collections.IDictionary]) {
+        if ($Object.Contains($Name)) { return $Object[$Name] }
+        return $null
+    }
+    $property = $Object.PSObject.Properties[$Name]
+    if ($null -eq $property) { return $null }
+    return $property.Value
+}
+
 function Get-KitConfig {
     $file = Join-Path $script:KitRoot 'config.json'
     if (-not (Test-Path -LiteralPath $file)) { throw "Missing config: $file" }
@@ -232,7 +248,8 @@ function Get-TwitterTargetProfile {
     if (Test-Path -LiteralPath $stateFile) {
         try {
             $state = Get-Content -LiteralPath $stateFile -Raw -Encoding UTF8 | ConvertFrom-Json
-            $lastUsed = [string]$state.profile.last_used
+            $profileState = Get-TwitterOptionalProperty -Object $state -Name 'profile'
+            $lastUsed = [string](Get-TwitterOptionalProperty -Object $profileState -Name 'last_used')
             if ($lastUsed -match '^(Default|Profile [0-9]+)$' -and (Test-Path -LiteralPath (Join-Path $root $lastUsed))) {
                 return $lastUsed
             }
@@ -252,19 +269,29 @@ function Get-TwitterExtensionStatus {
         $result.Reason = 'Browser preferences could not be read: ' + $_.Exception.Message
         return $result
     }
-    if ($null -eq $prefs -or $null -eq $prefs.extensions -or $null -eq $prefs.extensions.settings) { return $result }
-    foreach ($property in $prefs.extensions.settings.PSObject.Properties) {
+    $extensions = Get-TwitterOptionalProperty -Object $prefs -Name 'extensions'
+    $settings = Get-TwitterOptionalProperty -Object $extensions -Name 'settings'
+    if ($null -eq $settings) {
+        $result.Reason = 'No registered extensions in this browser profile (extensions.settings is absent)'
+        return $result
+    }
+    foreach ($property in $settings.PSObject.Properties) {
         $item = $property.Value
-        if ($null -eq $item -or $null -eq $item.manifest) { continue }
-        if ([string]$item.manifest.name -cne 'Twitter Blue Bird Restorer') { continue }
+        $itemManifest = Get-TwitterOptionalProperty -Object $item -Name 'manifest'
+        if ($null -eq $itemManifest) { continue }
+        $itemName = Get-TwitterOptionalProperty -Object $itemManifest -Name 'name'
+        if ([string]$itemName -cne 'Twitter Blue Bird Restorer') { continue }
         $result.Id = [string]$property.Name
-        $result.Path = if ($null -ne $item.PSObject.Properties['path']) { [string]$item.path } else { '' }
-        $result.Version = if ($null -ne $item.manifest.PSObject.Properties['version']) { [string]$item.manifest.version } else { '' }
+        $result.Path = [string](Get-TwitterOptionalProperty -Object $item -Name 'path')
+        $result.Version = [string](Get-TwitterOptionalProperty -Object $itemManifest -Name 'version')
+        $extensionState = Get-TwitterOptionalProperty -Object $item -Name 'state'
         $active = $false
-        try { $active = ([int]$item.state -eq 1) } catch { }
+        if ($null -ne $extensionState) {
+            try { $active = ([int]$extensionState -eq 1) } catch { }
+        }
         if (-not $active) {
             $result.Disabled = $true
-            $result.Reason = 'Registered but disabled'
+            $result.Reason = 'Registered but disabled (or state is unavailable)'
             continue
         }
         # An unpacked extension whose folder was moved no longer has usable files.
@@ -330,7 +357,7 @@ function Get-PolicyIconUrl {
     $config = Get-KitConfig
     if ($config.github_repo) {
         $manifestFile = Join-Path $script:KitRoot 'extension\manifest.json'
-        $revision = '1.5.2'
+        $revision = '1.5.3'
         if (Test-Path -LiteralPath $manifestFile) {
             $revision = [string](Get-Content -LiteralPath $manifestFile -Raw -Encoding UTF8 | ConvertFrom-Json).version
         }
@@ -352,7 +379,7 @@ function Assert-TwitterPublishedIconReady {
         $localHash = (Get-FileHash -LiteralPath $localIcon -Algorithm SHA256).Hash
         $remoteHash = (Get-FileHash -LiteralPath $remoteIcon -Algorithm SHA256).Hash
         if ($localHash -cne $remoteHash) {
-            throw 'GitHub icon does not match this installer. Publish v1.5.2 with Start-Twitter-Publish.cmd and retry after the release is available.'
+            throw 'GitHub icon does not match this installer. Publish v1.5.3 with Start-Twitter-Publish.cmd and retry after the release is available.'
         }
         Write-Host 'Published transparent PWA icon verified.' -ForegroundColor Green
     } finally {
@@ -383,7 +410,7 @@ function Set-TwitterPolicy {
                 $expectedIconHash = (Get-FileHash -LiteralPath $configIcon -Algorithm SHA256).Hash
                 $actualIconHash = (Get-FileHash -LiteralPath $tempIcon -Algorithm SHA256).Hash
                 if ($expectedIconHash -cne $actualIconHash) {
-                    throw 'GitHub PWA icon is not updated to this release. Publish v1.5.2 and wait for GitHub to refresh, then retry.'
+                    throw 'GitHub PWA icon is not updated to this release. Publish v1.5.3 and wait for GitHub to refresh, then retry.'
                 }
         }
         Add-Type -AssemblyName System.Drawing

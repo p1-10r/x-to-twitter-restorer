@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Twitter Blue Bird Restorer",
-  "version": "1.5.2",
+  "version": "1.5.3",
   "description": "x.comの表示上のXをTwitterへ戻します。投稿・入力内容は変更しません。",
   "icons": {
     "16": "assets/icon-16.png",
