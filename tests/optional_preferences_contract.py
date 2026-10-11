@@ -22,3 +22,14 @@ print('PASS optional Chromium extension registration guards')
 assert "Read-Host 'Copy the extension ID" in script
 assert 'User visually confirmed enabled extension ID:' in script
 assert "Read-Host 'Type ENABLED" in script
+
+# A PowerShell 5.1 if-expression collapses an array with one record to a scalar.
+# Keep the counted records in a real List[object] even when exactly one exists.
+status_test=(root/'tests/extension_status_windows.ps1').read_text(encoding='utf-8-sig')
+assert "$records = New-Object 'System.Collections.Generic.List[object]'" in block
+assert '$result.RecordsSeen += $records.Count' in block
+assert '$records = if (' not in block
+assert "'One registered extension does not scalar-unroll' 1" in status_test
+assert "'Multiple registered extensions retain exact count' 3" in status_test
+assert "'Empty settings' 0" in status_test
+print('PASS regression guard: strict-mode safe record counting (0, 1, many)')

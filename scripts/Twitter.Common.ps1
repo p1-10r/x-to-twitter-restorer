@@ -316,9 +316,20 @@ function Get-TwitterExtensionStatus {
         $settings = Get-TwitterOptionalProperty -Object (Get-TwitterOptionalProperty -Object $prefs -Name 'extensions') -Name 'settings'
         if ($null -eq $settings) { continue }
         $settingsFound = $true
-        $records = if ($settings -is [System.Collections.IDictionary]) {
-            @($settings.Keys | ForEach-Object { [pscustomobject]@{Name=[string]$_;Value=$settings[$_]} })
-        } else { @($settings.PSObject.Properties) }
+        # PowerShell unrolls function/if-expression output.  A single
+        # extension record used to become a scalar PSPropertyInfo, and under
+        # StrictMode a scalar has no .Count. Keep the collection strongly typed
+        # for zero, one and many extension records alike (Windows PS 5.1).
+        $records = New-Object 'System.Collections.Generic.List[object]'
+        if ($settings -is [System.Collections.IDictionary]) {
+            foreach ($key in $settings.Keys) {
+                $records.Add([pscustomobject]@{Name=[string]$key;Value=$settings[$key]})
+            }
+        } else {
+            foreach ($property in $settings.PSObject.Properties) {
+                $records.Add($property)
+            }
+        }
         $result.RecordsSeen += $records.Count
         foreach ($property in $records) {
             $item = $property.Value
@@ -515,7 +526,7 @@ function Get-PolicyIconUrl {
     $config = Get-KitConfig
     if ($config.github_repo) {
         $manifestFile = Join-Path $script:KitRoot 'extension\manifest.json'
-        $revision = '1.5.11'
+        $revision = '1.5.12'
         if (Test-Path -LiteralPath $manifestFile) {
             $revision = [string](Get-Content -LiteralPath $manifestFile -Raw -Encoding UTF8 | ConvertFrom-Json).version
         }
