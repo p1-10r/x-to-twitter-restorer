@@ -526,7 +526,7 @@ function Get-PolicyIconUrl {
     $config = Get-KitConfig
     if ($config.github_repo) {
         $manifestFile = Join-Path $script:KitRoot 'extension\manifest.json'
-        $revision = '1.5.12'
+        $revision = '1.5.13'
         if (Test-Path -LiteralPath $manifestFile) {
             $revision = [string](Get-Content -LiteralPath $manifestFile -Raw -Encoding UTF8 | ConvertFrom-Json).version
         }
@@ -590,7 +590,7 @@ function Set-TwitterPolicy {
         } finally { $img.Dispose() }
         $sha = (Get-FileHash -LiteralPath $tempIcon -Algorithm SHA256).Hash.ToLowerInvariant()
         $entry = [ordered]@{
-            url='https://x.com/'; default_launch_container='window'; create_desktop_shortcut=$true
+            url='https://x.com/'; default_launch_container='window'; create_desktop_shortcut=$false
             custom_name='Twitter'; custom_icon=[ordered]@{url=$iconUrl;hash=$sha}
         }
         $value = ConvertTo-Json -InputObject @($entry) -Depth 8 -Compress
@@ -618,6 +618,65 @@ function Set-TwitterPolicy {
         if (Test-Path -LiteralPath $tempIcon) { Remove-Item -LiteralPath $tempIcon -Force }
     }
 }
+# Turn off the browser-managed Windows desktop shortcut while retaining the
+# PWA name/icon and the forced-install policy. The installer owns the one
+# desktop shortcut it creates. This converter does not access the registry.
+function ConvertTo-TwitterSingleShortcutPolicy {
+    param([Parameter(Mandatory)][string]$PolicyJson)
+    $entries = @(ConvertFrom-Json -InputObject $PolicyJson -ErrorAction Stop)
+    if ($entries.Count -ne 1 -or [string]$entries[0].url -cne 'https://x.com/' -or
+        [string](Get-TwitterOptionalProperty -Object $entries[0] -Name 'custom_name') -cne 'Twitter') {
+        throw 'Unexpected Twitter PWA policy; refusing to modify its entries.'
+    }
+    $entry = $entries[0]
+    if ($entry.PSObject.Properties['create_desktop_shortcut']) {
+        $entry.create_desktop_shortcut = $false
+    } else {
+        $entry | Add-Member -NotePropertyName 'create_desktop_shortcut' -NotePropertyValue $false
+    }
+    return (ConvertTo-Json -InputObject @($entry) -Depth 10 -Compress)
+}
+
+# Safe in-place migration for v1.5.12 and older. Never uninstall the PWA,
+# overwrite third-party policy, or delete any browser profile/site data.
+function Disable-OwnedTwitterPolicyDesktopShortcut {
+    $oldPolicy = Get-PolicyValue
+    if (-not $oldPolicy) { Write-Host 'No Twitter PWA policy in selected browser.'; return $false }
+    if (-not (Test-Path -LiteralPath $script:PolicyStatePath -PathType Leaf)) {
+        throw 'Policy is not owned by this kit. No changes made.'
+    }
+    $oldStateText = [IO.File]::ReadAllText($script:PolicyStatePath, [Text.Encoding]::UTF8)
+    $state = ConvertFrom-Json -InputObject $oldStateText -ErrorAction Stop
+    if ($oldPolicy -cne [string]$state.policyValue) {
+        throw 'PWA policy differs from the kit ownership record. No changes made.'
+    }
+    $newPolicy = ConvertTo-TwitterSingleShortcutPolicy -PolicyJson $oldPolicy
+    $enabled = @(ConvertFrom-Json -InputObject $oldPolicy)[0]
+    if ((Get-TwitterOptionalProperty -Object $enabled -Name 'create_desktop_shortcut') -eq $false) {
+        Write-Host 'Desktop shortcut auto-creation was already disabled.'
+        return $false
+    }
+    $state.policyValue = $newPolicy
+    $newStateText = ConvertTo-Json -InputObject $state -Depth 10
+    $temporary = $script:PolicyStatePath + '.' + [guid]::NewGuid().ToString('N') + '.tmp'
+    try {
+        [IO.File]::WriteAllText($temporary, $newStateText, ([System.Text.UTF8Encoding]::new($false)))
+        Set-ItemProperty -LiteralPath $script:PolicyKey -Name $script:PolicyName -Value $newPolicy -ErrorAction Stop
+        if ((Get-PolicyValue) -cne $newPolicy) { throw 'Policy readback mismatch.' }
+        # Atomic replacement keeps the policy ownership record whole on interruption.
+        [IO.File]::Replace($temporary, $script:PolicyStatePath, $null)
+    } catch {
+        # Both the registry and the ownership record must continue to agree.
+        Set-ItemProperty -LiteralPath $script:PolicyKey -Name $script:PolicyName -Value $oldPolicy -ErrorAction Stop
+        [IO.File]::WriteAllText($script:PolicyStatePath, $oldStateText, ([System.Text.UTF8Encoding]::new($false)))
+        throw
+    } finally {
+        if (Test-Path -LiteralPath $temporary) { Remove-Item -LiteralPath $temporary -Force }
+    }
+    Write-Host 'Browser desktop shortcut auto-creation disabled; Twitter PWA preserved.' -ForegroundColor Green
+    return $true
+}
+
 function Get-TwitterLinks {
     $shell = New-Object -ComObject WScript.Shell
     $paths = @(
@@ -667,6 +726,49 @@ function Get-TwitterDesktopLinks {
     }
     return $links.ToArray()
 }
+# Only numeric duplicate names on the *current user's* desktop and only
+# launchers with exactly the same target and args as Twitter.lnk are eligible.
+# Preserve the canonical link and other browser/PWA shortcuts.
+function Get-TwitterDuplicateDesktopShortcuts {
+    param([string]$Desktop = [Environment]::GetFolderPath('Desktop'))
+    if (-not $Desktop -or -not (Test-Path -LiteralPath $Desktop -PathType Container)) { return @() }
+    $links = @(Get-TwitterDesktopLinks -Folders @($Desktop))
+    $canonical = @($links | Where-Object { $_.Name -ceq 'Twitter.lnk' } | Select-Object -First 1)
+    if ($canonical.Count -eq 0) {
+        $browserLinkName = 'Twitter (' + $script:SelectedBrowser.DisplayName + ').lnk'
+        $canonical = @($links | Where-Object { $_.Name -ceq $browserLinkName } | Select-Object -First 1)
+    }
+    if ($canonical.Count -ne 1) { return @() }
+    $shell = New-Object -ComObject WScript.Shell
+    $master = $shell.CreateShortcut($canonical[0].FullName)
+    $masterTarget = [string]$master.TargetPath
+    $masterArgs = [string]$master.Arguments
+    $duplicates = New-Object 'System.Collections.Generic.List[System.IO.FileInfo]'
+    foreach ($linkFile in $links) {
+        if ($linkFile.BaseName -cnotmatch '^(?i:Twitter) \([0-9]+\)$') { continue }
+        $link = $shell.CreateShortcut($linkFile.FullName)
+        if ([string]::Equals([string]$link.TargetPath, $masterTarget, [StringComparison]::OrdinalIgnoreCase) -and
+            [string]::Equals(([string]$link.Arguments).Trim(), $masterArgs.Trim(), [StringComparison]::OrdinalIgnoreCase)) {
+            $duplicates.Add($linkFile)
+        }
+    }
+    return $duplicates.ToArray()
+}
+function Backup-TwitterDuplicateDesktopShortcuts {
+    param([string]$Desktop = [Environment]::GetFolderPath('Desktop'))
+    $duplicates = @(Get-TwitterDuplicateDesktopShortcuts -Desktop $Desktop)
+    if ($duplicates.Count -eq 0) { return 0 }
+    $backupDir = Join-Path $script:DataRoot ('DesktopShortcutBackups\' + (Get-Date -Format 'yyyyMMdd-HHmmss') + '-' + [guid]::NewGuid().ToString('N'))
+    New-Item -Path $backupDir -ItemType Directory -Force | Out-Null
+    foreach ($duplicate in $duplicates) {
+        $destination = Join-Path $backupDir $duplicate.Name
+        Move-Item -LiteralPath $duplicate.FullName -Destination $destination -ErrorAction Stop
+        Write-Host ('Backed up duplicate: ' + $duplicate.Name) -ForegroundColor Green
+    }
+    Write-Host ('Duplicate shortcut backups: ' + $backupDir)
+    return $duplicates.Count
+}
+
 # Tell Explorer the .lnk and icon changed. This only invalidates the shell icon
 # cache; it does not stop Explorer or delete the user's icon database.
 function Notify-TwitterShellIconChanged {

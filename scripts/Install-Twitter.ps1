@@ -144,6 +144,10 @@ try {
         catch { Write-Warning ('Could not launch Twitter app shortcut: ' + $_.Exception.Message) }
     }
 
+    # Remove only numerically suffixed duplicates of our own PWA launcher.
+    # Every moved link is retained in AppData for recovery.
+    $null = Backup-TwitterDuplicateDesktopShortcuts
+
     # Chromium can create a second default desktop shortcut after our first
     # link was updated. Repair all matching PWA links once more after launch.
     if ($desktopShortcut -and -not $SkipBrowserRestart) {

@@ -15,6 +15,7 @@ jobs:
         run: |
           .\tests\extension_status_windows.ps1
           .\tests\desktop_shortcut_windows.ps1
+          .\tests\desktop_duplication_windows.ps1
   release:
     needs: windows-extension-check
     runs-on: ubuntu-latest
@@ -45,4 +46,4 @@ jobs:
             dist/twitter-extension.zip dist/twitter-extension.zip.sha256 \
             dist/twitter-restorer-kit.zip dist/twitter-restorer-kit.zip.sha256 \
             --title "Twitter Blue Bird Restorer $GITHUB_REF_NAME" \
-            --notes "Chrome, Edge and Brave supported. v1.5.12 fixes PowerShell 5.1 StrictMode record counting with one extension entry and adds regression coverage. Existing transparent icons remain unchanged. Install with Start-Twitter-Setup.cmd; load the unpacked extension once in your chosen browser."
+            --notes "Chrome, Edge and Brave supported. v1.5.13 prevents duplicate Twitter desktop shortcuts on restart and adds a one-time repair without reinstalling the PWA. Install with Start-Twitter-Setup.cmd; load the unpacked extension once in your chosen browser."
