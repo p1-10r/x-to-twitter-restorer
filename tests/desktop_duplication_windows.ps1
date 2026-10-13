@@ -28,9 +28,28 @@ try {
     # File.Replace must succeed with three concrete absolute paths and clean
     # its temporary ownership backup after successful migration.
     $stateDir = Split-Path -Parent $script:PolicyStatePath
-    $residual = @(Get-ChildItem -LiteralPath $stateDir -File -Filter 'installed-policy.json.*' -ErrorAction SilentlyContinue)
-    if ($residual.Count -ne 0) { throw 'Temporary migration or backup files were left behind.' }
+    # Avoid the Windows file-provider -Filter wildcard semantics: filename.*
+    # can match the filename WITHOUT a trailing dot. Inspect literal Names
+    # instead, so the legitimate installed-policy.json never looks residual.
+    $allStateFiles = @(Get-ChildItem -LiteralPath $stateDir -File -ErrorAction Stop)
+    $residual = @($allStateFiles | Where-Object { $_.Name -match '^installed-policy\.json\..+$' })
+    if ($residual.Count -ne 0) {
+        throw ('Temporary migration or backup files were left behind: ' + (($residual | ForEach-Object { $_.Name }) -join ', '))
+    }
     if (-not (Test-Path -LiteralPath $script:PolicyStatePath -PathType Leaf)) { throw 'Migration removed the owned policy record.' }
+    # Test the residual-name selector itself. Only the disposable fixture gets
+    # touched; the real installed-policy.json must remain in place.
+    $probe = Join-Path $stateDir 'installed-policy.json.test-probe.tmp'
+    try {
+        [IO.File]::WriteAllText($probe, 'probe', [Text.Encoding]::UTF8)
+        $probed = @(Get-ChildItem -LiteralPath $stateDir -File -ErrorAction Stop |
+            Where-Object { $_.Name -match '^installed-policy\.json\..+$' })
+        if ($probed.Count -ne 1 -or $probed[0].Name -cne 'installed-policy.json.test-probe.tmp') {
+            throw ('Residual-name selector failed: ' + (($probed | ForEach-Object { $_.Name }) -join ', '))
+        }
+    } finally {
+        if (Test-Path -LiteralPath $probe -PathType Leaf) { Remove-Item -LiteralPath $probe -Force }
+    }
     if (Disable-OwnedTwitterPolicyDesktopShortcut) { throw 'Second migration should be a no-op.' }
     # A root array with one entry is valid. A root object, empty array, multiple
     # entries, or a policy for another site must never pass validation.

@@ -46,4 +46,4 @@ jobs:
             dist/twitter-extension.zip dist/twitter-extension.zip.sha256 \
             dist/twitter-restorer-kit.zip dist/twitter-restorer-kit.zip.sha256 \
             --title "Twitter Blue Bird Restorer $GITHUB_REF_NAME" \
-            --notes "Chrome, Edge and Brave supported. v1.5.15 fixes Windows PowerShell 5.1 policy state replacement in the one-time duplicate shortcut repair without reinstalling the PWA. Install with Start-Twitter-Setup.cmd; load the unpacked extension once in your chosen browser."
+            --notes "Chrome, Edge and Brave supported. v1.5.16 fixes false-positive leftover-file detection in Windows PowerShell 5.1 CI; the PWA can be left installed. Install with Start-Twitter-Setup.cmd; load the unpacked extension once in your chosen browser."
