@@ -16,6 +16,7 @@ jobs:
           .\tests\extension_status_windows.ps1
           .\tests\desktop_shortcut_windows.ps1
           .\tests\desktop_duplication_windows.ps1
+          .\tests\uninstall_windows.ps1
   release:
     needs: windows-extension-check
     runs-on: ubuntu-latest
@@ -35,7 +36,7 @@ jobs:
           mkdir -p dist
           (cd extension && zip -q -r ../dist/twitter-extension.zip . -x '*.pyc' '__pycache__/*')
           (cd dist && sha256sum twitter-extension.zip > twitter-extension.zip.sha256)
-          zip -q -r dist/twitter-restorer-kit.zip extension resources scripts *.cmd config.json README.md Bootstrap-Twitter.ps1
+          zip -q -r dist/twitter-restorer-kit.zip extension resources scripts *.cmd config.json README.md UNINSTALL-README.txt Bootstrap-Twitter.ps1
           (cd dist && sha256sum twitter-restorer-kit.zip > twitter-restorer-kit.zip.sha256)
       - name: Publish GitHub release
         env:
@@ -46,4 +47,4 @@ jobs:
             dist/twitter-extension.zip dist/twitter-extension.zip.sha256 \
             dist/twitter-restorer-kit.zip dist/twitter-restorer-kit.zip.sha256 \
             --title "Twitter Blue Bird Restorer $GITHUB_REF_NAME" \
-            --notes "Chrome, Edge and Brave supported. v1.5.16 fixes false-positive leftover-file detection in Windows PowerShell 5.1 CI; the PWA can be left installed. Install with Start-Twitter-Setup.cmd; load the unpacked extension once in your chosen browser."
+            --notes "Chrome, Edge and Brave supported. v1.5.18 documents manual removal of remaining unpacked extensions in Brave, Chrome and Edge, with per-profile verification before kit cleanup. Install with Start-Twitter-Setup.cmd; load the unpacked extension once in your chosen browser."

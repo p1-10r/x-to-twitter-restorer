@@ -1,8 +1,4 @@
 @echo off
-setlocal
-cd /d "%~dp0"
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%~dp0scripts\Remove-Twitter.ps1"
-set "EXIT_CODE=%ERRORLEVEL%"
-echo.
-pause
-exit /b %EXIT_CODE%
+rem Compatibility: the old Remove command now launches the complete uninstaller.
+call "%~dp0Start-Twitter-Uninstall-All.cmd"
+exit /b %ERRORLEVEL%
