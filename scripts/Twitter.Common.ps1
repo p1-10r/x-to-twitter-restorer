@@ -526,7 +526,7 @@ function Get-PolicyIconUrl {
     $config = Get-KitConfig
     if ($config.github_repo) {
         $manifestFile = Join-Path $script:KitRoot 'extension\manifest.json'
-        $revision = '1.5.14'
+        $revision = '1.5.15'
         if (Test-Path -LiteralPath $manifestFile) {
             $revision = [string](Get-Content -LiteralPath $manifestFile -Raw -Encoding UTF8 | ConvertFrom-Json).version
         }
@@ -670,20 +670,41 @@ function Disable-OwnedTwitterPolicyDesktopShortcut {
     }
     $state.policyValue = $newPolicy
     $newStateText = ConvertTo-Json -InputObject $state -Depth 10
-    $temporary = $script:PolicyStatePath + '.' + [guid]::NewGuid().ToString('N') + '.tmp'
+    # Use three absolute paths on the same volume. In Windows PowerShell 5.1,
+    # the previous Replace call with no backup path raised ArgumentException
+    # on Windows CI; give all three paths explicitly and validate the result.
+    # Keep the original file as a backup until registry and state readback pass.
+    $destination = [IO.Path]::GetFullPath([string]$script:PolicyStatePath)
+    $stateDirectory = [IO.Path]::GetDirectoryName($destination)
+    $stateFileName = [IO.Path]::GetFileName($destination)
+    $nonce = [guid]::NewGuid().ToString('N')
+    $temporary = [IO.Path]::Combine($stateDirectory, $stateFileName + '.' + $nonce + '.tmp')
+    $backup = [IO.Path]::Combine($stateDirectory, $stateFileName + '.' + $nonce + '.bak')
     try {
         [IO.File]::WriteAllText($temporary, $newStateText, ([System.Text.UTF8Encoding]::new($false)))
         Set-ItemProperty -LiteralPath $script:PolicyKey -Name $script:PolicyName -Value $newPolicy -ErrorAction Stop
         if ((Get-PolicyValue) -cne $newPolicy) { throw 'Policy readback mismatch.' }
-        # Atomic replacement keeps the policy ownership record whole on interruption.
-        [IO.File]::Replace($temporary, $script:PolicyStatePath, $null)
+        # Atomic replacement plus an actual backup path; the ownership record
+        # must never be truncated if Windows interrupts the migration.
+        [IO.File]::Replace($temporary, $destination, $backup)
+        $written = ConvertFrom-Json -InputObject ([IO.File]::ReadAllText($destination, [Text.Encoding]::UTF8)) -ErrorAction Stop
+        if ([string]$written.policyValue -cne $newPolicy) { throw 'Policy state readback mismatch.' }
     } catch {
         # Both the registry and the ownership record must continue to agree.
-        Set-ItemProperty -LiteralPath $script:PolicyKey -Name $script:PolicyName -Value $oldPolicy -ErrorAction Stop
-        [IO.File]::WriteAllText($script:PolicyStatePath, $oldStateText, ([System.Text.UTF8Encoding]::new($false)))
+        # Restore from the actual file backup when replacement happened.
+        try {
+            if (Test-Path -LiteralPath $backup -PathType Leaf) {
+                [IO.File]::Copy($backup, $destination, $true)
+            } else {
+                [IO.File]::WriteAllText($destination, $oldStateText, ([System.Text.UTF8Encoding]::new($false)))
+            }
+        } finally {
+            Set-ItemProperty -LiteralPath $script:PolicyKey -Name $script:PolicyName -Value $oldPolicy -ErrorAction Stop
+        }
         throw
     } finally {
-        if (Test-Path -LiteralPath $temporary) { Remove-Item -LiteralPath $temporary -Force }
+        if (Test-Path -LiteralPath $temporary -PathType Leaf) { Remove-Item -LiteralPath $temporary -Force }
+        if (Test-Path -LiteralPath $backup -PathType Leaf) { Remove-Item -LiteralPath $backup -Force }
     }
     Write-Host 'Browser desktop shortcut auto-creation disabled; Twitter PWA preserved.' -ForegroundColor Green
     return $true

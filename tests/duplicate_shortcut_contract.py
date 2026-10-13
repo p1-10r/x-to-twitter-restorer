@@ -6,6 +6,9 @@ assert 'create_desktop_shortcut=$false' in common
 assert 'create_desktop_shortcut=$true' not in common
 assert 'ConvertTo-TwitterSingleShortcutPolicy' in common
 assert 'Disable-OwnedTwitterPolicyDesktopShortcut' in common
+assert '[IO.File]::Replace($temporary, $destination, $backup)' in common
+assert '[IO.File]::Replace($temporary, $script:PolicyStatePath, $null)' not in common
+assert 'Policy state readback mismatch.' in common
 assert 'Get-TwitterDuplicateDesktopShortcuts' in common
 assert 'Backup-TwitterDuplicateDesktopShortcuts' in installer
 assert 'Backup-TwitterDuplicateDesktopShortcuts' in common

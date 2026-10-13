@@ -53,6 +53,6 @@ X（x.com）を、青い鳥の「Twitter」の見た目に戻すWindows用ツー
 
 [GitHub Releases](https://github.com/p1-10r/x-to-twitter-restorer/releases/latest)
 
-## v1.5.14について
+## v1.5.15について
 
-WindowsのTwitterショートカットが再起動時に増えないようにする修復処理の、ポリシー読み取りエラーを修正しました。すでにアプリが正常に動作している場合は再インストール不要です。以前のバージョンでアイコンが増える場合は、同梱の `Start-Twitter-Stop-Duplicates.cmd` を実行して画面の説明を確認してください。
+WindowsのTwitterショートカットが再起動時に増えないようにする修復処理の、ポリシー管理記録を更新するときのパスエラーに対応しました。すでにアプリが正常に動作している場合は再インストール不要です。以前のバージョンでアイコンが増える場合は、同梱の `Start-Twitter-Stop-Duplicates.cmd` を実行して画面の説明を確認してください。

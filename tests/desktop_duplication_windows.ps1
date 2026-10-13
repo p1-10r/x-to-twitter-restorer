@@ -25,6 +25,12 @@ try {
     }
     $owner = Get-Content -LiteralPath $script:PolicyStatePath -Raw -Encoding UTF8 | ConvertFrom-Json
     if ($owner.policyValue -cne $migrated) { throw 'Owned policy record was not updated.' }
+    # File.Replace must succeed with three concrete absolute paths and clean
+    # its temporary ownership backup after successful migration.
+    $stateDir = Split-Path -Parent $script:PolicyStatePath
+    $residual = @(Get-ChildItem -LiteralPath $stateDir -File -Filter 'installed-policy.json.*' -ErrorAction SilentlyContinue)
+    if ($residual.Count -ne 0) { throw 'Temporary migration or backup files were left behind.' }
+    if (-not (Test-Path -LiteralPath $script:PolicyStatePath -PathType Leaf)) { throw 'Migration removed the owned policy record.' }
     if (Disable-OwnedTwitterPolicyDesktopShortcut) { throw 'Second migration should be a no-op.' }
     # A root array with one entry is valid. A root object, empty array, multiple
     # entries, or a policy for another site must never pass validation.

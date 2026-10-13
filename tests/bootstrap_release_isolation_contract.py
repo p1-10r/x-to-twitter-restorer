@@ -9,7 +9,7 @@ root=Path(__file__).resolve().parents[1]
 boot=(root/'Bootstrap-Twitter.ps1').read_text(encoding='utf-8')
 common=(root/'scripts/Twitter.Common.ps1').read_text(encoding='utf-8')
 version=json.loads((root/'extension/manifest.json').read_text(encoding='utf-8'))['version']
-assert version=='1.5.14'
+assert version=='1.5.15'
 assert 'if ($localVersion -gt $releaseVersion)' in boot
 assert 'if ([string]$latest.tag_name -cne' in boot
 assert 'Get-ChildItem -LiteralPath $expand -Force' in boot

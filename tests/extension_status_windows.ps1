@@ -11,7 +11,7 @@ function Get-BrowserProfileRoot { return $tempRoot }
 $script:SelectedBrowser = Get-BrowserDefinition 'brave'
 $script:ExtensionRoot = $extensionFolder
 $manifestPath = Join-Path $extensionFolder 'manifest.json'
-[IO.File]::WriteAllText($manifestPath, '{"name":"Twitter Blue Bird Restorer","version":"1.5.14"}', [Text.Encoding]::UTF8)
+[IO.File]::WriteAllText($manifestPath, '{"name":"Twitter Blue Bird Restorer","version":"1.5.15"}', [Text.Encoding]::UTF8)
 $preferencesPath = Join-Path $profileDir 'Preferences'
 $securePath = Join-Path $profileDir 'Secure Preferences'
 function Test-Case([object]$Prefs,[object]$Secure,[bool]$ExpectedInstalled,[string]$Label,[int]$ExpectedRecordCount = -1) {
@@ -25,8 +25,8 @@ function Test-Case([object]$Prefs,[object]$Secure,[bool]$ExpectedInstalled,[stri
         throw ('Failed: ' + $Label + ' : expected ' + $ExpectedRecordCount + ' records, got ' + $status.RecordsSeen)
     }
 }
-$good = @{extensions=@{settings=@{abc=@{manifest=@{name='Twitter Blue Bird Restorer';version='1.5.14'};state=1;path=$extensionFolder}}}}
-$disabled = @{extensions=@{settings=@{abc=@{manifest=@{name='Twitter Blue Bird Restorer';version='1.5.14'};state=0;path=$extensionFolder}}}}
+$good = @{extensions=@{settings=@{abc=@{manifest=@{name='Twitter Blue Bird Restorer';version='1.5.15'};state=1;path=$extensionFolder}}}}
+$disabled = @{extensions=@{settings=@{abc=@{manifest=@{name='Twitter Blue Bird Restorer';version='1.5.15'};state=0;path=$extensionFolder}}}}
 try {
     Test-Case @{} $null $false 'No extensions node'
     Test-Case @{extensions=@{}} $null $false 'No settings node'
@@ -37,21 +37,21 @@ try {
     $multiple = @{extensions=@{settings=@{
         unrelated1=@{state=1;path=(Join-Path $tempRoot 'OtherA')}
         unrelated2=@{state=1;path=(Join-Path $tempRoot 'OtherB')}
-        abc=@{manifest=@{name='Twitter Blue Bird Restorer';version='1.5.14'};state=1;path=$extensionFolder}
+        abc=@{manifest=@{name='Twitter Blue Bird Restorer';version='1.5.15'};state=1;path=$extensionFolder}
     }}}
     Test-Case $multiple $null $true 'Multiple registered extensions retain exact count' 3
     Test-Case @{extensions=@{settings=@{unrelated=@{state=1}}}} $null $false 'One unrelated extension remains uninstalled' 1
     Test-Case @{extensions=@{settings=@{abc=@{state=1}}}} $null $false 'Missing extension manifest'
-    Test-Case @{extensions=@{settings=@{abc=@{manifest=@{name='Twitter Blue Bird Restorer';version='1.5.14'}}}}} $null $false 'Missing state and missing source path must not be inferred'
+    Test-Case @{extensions=@{settings=@{abc=@{manifest=@{name='Twitter Blue Bird Restorer';version='1.5.15'}}}}} $null $false 'Missing state and missing source path must not be inferred'
     # The user's Brave diagnostic reported the registration correctly but could
     # not tell if the saved state was 0 or missing. Keep those cases separate.
-    Test-Case @{extensions=@{settings=@{abc=@{manifest=@{name='Twitter Blue Bird Restorer';version='1.5.14'};path=$extensionFolder}}}} $null $true 'Registered with matching path and missing state is inferred ready'
+    Test-Case @{extensions=@{settings=@{abc=@{manifest=@{name='Twitter Blue Bird Restorer';version='1.5.15'};path=$extensionFolder}}}} $null $true 'Registered with matching path and missing state is inferred ready'
     $missingStatus = Get-TwitterExtensionStatus -Profile 'Default'
     if (-not $missingStatus.RegistrationPresent -or -not $missingStatus.StateInferred -or $missingStatus.EnabledVerified -or @($missingStatus.StateDetails) -notcontains 'Preferences: missing') {
         throw 'Failed: missing state must be visible in diagnostics.'
     }
     # Missing in one source must not override explicit disabled state in the other.
-    $missing = @{extensions=@{settings=@{abc=@{manifest=@{name='Twitter Blue Bird Restorer';version='1.5.14'};path=$extensionFolder}}}}
+    $missing = @{extensions=@{settings=@{abc=@{manifest=@{name='Twitter Blue Bird Restorer';version='1.5.15'};path=$extensionFolder}}}}
     Test-Case $missing $disabled $false 'Missing state cannot override explicit disabled'
     Test-Case $disabled $null $false 'Saved state zero is disabled'
     $disabledStatus = Get-TwitterExtensionStatus -Profile 'Default'
@@ -71,16 +71,16 @@ try {
     Test-Case $good $null $true 'Normal Preferences works without Secure Preferences'
     Test-Case $null $good $true 'Secure Preferences works without normal Preferences'
     Test-Case @{extensions=@{settings=@{abc=@{state=1;path=$extensionFolder}}}} $null $true 'Installed unpacked path without cached manifest'
-    Test-Case @{extensions=@{settings=@{abc=@{manifest=@{name='__MSG_appName__';version='1.5.14'};state=1;path=$extensionFolder}}}} $null $true 'Localized browser cached name with matching stable extension path'
-    Test-Case @{extensions=@{settings=@{abc=@{manifest=('{"name":"Twitter Blue Bird Restorer","version":"1.5.14"}');state=1;path=$extensionFolder}}}} $null $true 'Manifest cached as JSON string'
-    Test-Case @{extensions=@{settings=@{abc=@{manifest=@{name='Not Twitter';version='1.5.14'};state=1;path=$extensionFolder}}}} $null $true 'Cached display name stale but unpacked path matches'
+    Test-Case @{extensions=@{settings=@{abc=@{manifest=@{name='__MSG_appName__';version='1.5.15'};state=1;path=$extensionFolder}}}} $null $true 'Localized browser cached name with matching stable extension path'
+    Test-Case @{extensions=@{settings=@{abc=@{manifest=('{"name":"Twitter Blue Bird Restorer","version":"1.5.15"}');state=1;path=$extensionFolder}}}} $null $true 'Manifest cached as JSON string'
+    Test-Case @{extensions=@{settings=@{abc=@{manifest=@{name='Not Twitter';version='1.5.15'};state=1;path=$extensionFolder}}}} $null $true 'Cached display name stale but unpacked path matches'
     $oldExtensionFolder = Join-Path $tempRoot 'OldExtension'
     New-Item -ItemType Directory -Path $oldExtensionFolder -Force | Out-Null
-    Test-Case @{extensions=@{settings=@{abc=@{manifest=@{name='Twitter Blue Bird Restorer';version='1.5.14'};state=1;path=$oldExtensionFolder}}}} $null $false 'Matching name but old unpacked folder cannot auto-update'
-    Test-Case @{extensions=@{settings=@{abc=@{manifest=@{name='Twitter Blue Bird Restorer';version='1.5.14'};path=$oldExtensionFolder}}}} $null $false 'Missing state cannot infer a different source directory'
+    Test-Case @{extensions=@{settings=@{abc=@{manifest=@{name='Twitter Blue Bird Restorer';version='1.5.15'};state=1;path=$oldExtensionFolder}}}} $null $false 'Matching name but old unpacked folder cannot auto-update'
+    Test-Case @{extensions=@{settings=@{abc=@{manifest=@{name='Twitter Blue Bird Restorer';version='1.5.15'};path=$oldExtensionFolder}}}} $null $false 'Missing state cannot infer a different source directory'
     Test-Case @{extensions=@{settings=@{abc=@{manifest=@{name='Twitter Blue Bird Restorer';version='1.5.8'};state=1;path=$extensionFolder}}}} $null $false 'Cached old browser manifest requires Reload'
     Test-Case @{extensions=@{settings=@{abc=@{manifest=@{name='Twitter Blue Bird Restorer';version='1.5.8'};path=$extensionFolder}}}} $null $false 'Missing state must not hide stale version'
-    Test-Case @{extensions=@{settings=@{abc=@{manifest=@{name='Twitter Blue Bird Restorer';version='1.5.14'};state='oops';path=$extensionFolder}}}} $null $false 'Unrecognized state cannot be inferred'
+    Test-Case @{extensions=@{settings=@{abc=@{manifest=@{name='Twitter Blue Bird Restorer';version='1.5.15'};state='oops';path=$extensionFolder}}}} $null $false 'Unrecognized state cannot be inferred'
 
     $alternate = Join-Path $tempRoot 'Profile 1'
     New-Item -ItemType Directory -Path $alternate -Force | Out-Null
