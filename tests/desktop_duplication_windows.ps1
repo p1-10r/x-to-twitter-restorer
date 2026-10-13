@@ -1,4 +1,4 @@
-# Integration test: Windows PowerShell 5.1, isolated temp files + one disposable HKCU key.
+﻿# Integration test: Windows PowerShell 5.1, isolated temp files + one disposable HKCU key.
 $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $PSScriptRoot
 . (Join-Path $root 'scripts\Twitter.Common.ps1')
@@ -18,13 +18,35 @@ try {
     [pscustomobject]@{policyValue=$originalPolicy;createdAt='test'} | ConvertTo-Json | Set-Content -LiteralPath $script:PolicyStatePath -Encoding UTF8
     if (-not (Disable-OwnedTwitterPolicyDesktopShortcut)) { throw 'Expected migration to change the policy.' }
     $migrated = Get-PolicyValue
-    $entry = @(ConvertFrom-Json $migrated)[0]
+    $parsedMigrated = ConvertFrom-Json -InputObject $migrated -ErrorAction Stop
+    $entry = $parsedMigrated[0]
     if ($entry.create_desktop_shortcut -ne $false -or $entry.custom_name -ne 'Twitter' -or $entry.custom_icon.hash -ne 'abc') {
         throw 'Migration modified other policy attributes.'
     }
     $owner = Get-Content -LiteralPath $script:PolicyStatePath -Raw -Encoding UTF8 | ConvertFrom-Json
     if ($owner.policyValue -cne $migrated) { throw 'Owned policy record was not updated.' }
     if (Disable-OwnedTwitterPolicyDesktopShortcut) { throw 'Second migration should be a no-op.' }
+    # A root array with one entry is valid. A root object, empty array, multiple
+    # entries, or a policy for another site must never pass validation.
+    foreach ($invalidPolicy in @(
+        '{"url":"https://x.com/","custom_name":"Twitter"}',
+        '[]',
+        '[{"url":"https://x.com/","custom_name":"Twitter"},{"url":"https://x.com/","custom_name":"Twitter"}]',
+        '[{"url":"https://example.com/","custom_name":"Twitter"}]',
+        '[{"url":"https://x.com/","custom_name":"Other"}]'
+    )) {
+        $blocked = $false
+        try { $null = ConvertTo-TwitterSingleShortcutPolicy -PolicyJson $invalidPolicy } catch { $blocked = $true }
+        if (-not $blocked) { throw ('Unexpected policy accepted: ' + $invalidPolicy) }
+    }
+    # Valid conversion must keep all other attributes unchanged.
+    $unchanged = ConvertTo-TwitterSingleShortcutPolicy -PolicyJson $migrated
+    $parsedUnchanged = ConvertFrom-Json -InputObject $unchanged -ErrorAction Stop
+    if (-not ($parsedUnchanged -is [array]) -or $parsedUnchanged.Count -ne 1 -or
+        $parsedUnchanged[0].custom_icon.hash -ne 'abc' -or
+        $parsedUnchanged[0].create_desktop_shortcut -ne $false) {
+        throw 'Converting an already migrated policy must preserve its data.'
+    }
     # Reject a third-party policy, without changing it or rewriting the owner record.
     Set-ItemProperty -LiteralPath $key -Name $script:PolicyName -Value $originalPolicy
     $rejected = $false

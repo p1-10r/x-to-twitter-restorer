@@ -526,7 +526,7 @@ function Get-PolicyIconUrl {
     $config = Get-KitConfig
     if ($config.github_repo) {
         $manifestFile = Join-Path $script:KitRoot 'extension\manifest.json'
-        $revision = '1.5.13'
+        $revision = '1.5.14'
         if (Test-Path -LiteralPath $manifestFile) {
             $revision = [string](Get-Content -LiteralPath $manifestFile -Raw -Encoding UTF8 | ConvertFrom-Json).version
         }
@@ -623,8 +623,16 @@ function Set-TwitterPolicy {
 # desktop shortcut it creates. This converter does not access the registry.
 function ConvertTo-TwitterSingleShortcutPolicy {
     param([Parameter(Mandatory)][string]$PolicyJson)
-    $entries = @(ConvertFrom-Json -InputObject $PolicyJson -ErrorAction Stop)
-    if ($entries.Count -ne 1 -or [string]$entries[0].url -cne 'https://x.com/' -or
+    # Windows PowerShell 5.1 emits a JSON root array as ONE pipeline object.
+    # @(<ConvertFrom-Json command>) can therefore produce a *nested* array.
+    # Parse first, normalize to exactly one dimension, and require a JSON array.
+    if ($PolicyJson -notmatch '^\s*\[') {
+        throw 'Unexpected Twitter PWA policy; refusing to modify its entries.'
+    }
+    $parsed = ConvertFrom-Json -InputObject $PolicyJson -ErrorAction Stop
+    [object[]]$entries = if ($parsed -is [array]) { $parsed } else { @($parsed) }
+    if ($entries.Count -ne 1 -or
+        [string](Get-TwitterOptionalProperty -Object $entries[0] -Name 'url') -cne 'https://x.com/' -or
         [string](Get-TwitterOptionalProperty -Object $entries[0] -Name 'custom_name') -cne 'Twitter') {
         throw 'Unexpected Twitter PWA policy; refusing to modify its entries.'
     }
@@ -651,7 +659,11 @@ function Disable-OwnedTwitterPolicyDesktopShortcut {
         throw 'PWA policy differs from the kit ownership record. No changes made.'
     }
     $newPolicy = ConvertTo-TwitterSingleShortcutPolicy -PolicyJson $oldPolicy
-    $enabled = @(ConvertFrom-Json -InputObject $oldPolicy)[0]
+    # Read the decoded array from a variable: PowerShell 5.1 wraps root
+    # JSON arrays in the ConvertFrom-Json pipeline instead of enumerating them.
+    $originalEntries = ConvertFrom-Json -InputObject $oldPolicy -ErrorAction Stop
+    if ($originalEntries -is [array]) { $enabled = $originalEntries[0] }
+    else { $enabled = $originalEntries }
     if ((Get-TwitterOptionalProperty -Object $enabled -Name 'create_desktop_shortcut') -eq $false) {
         Write-Host 'Desktop shortcut auto-creation was already disabled.'
         return $false
